@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Testimonial Dashboard — Foundation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar__left">
+      <h1>Testimonial Dashboard</h1>
+      <span class="phase">Phase 1 · Foundation</span>
+    </div>
+    <div class="topbar__right">
+      <span id="status" class="status">Starting…</span>
+      <button id="reload" class="btn">Reload</button>
+    </div>
+  </header>
+
+  <p class="banner">
+    This is the foundation, not the dashboard. It proves the read path, the write path,
+    identity resolution, and the event-log fold. The pipeline board and client card are Phase 2.
+    Live at <code id="pagesUrl"></code>
+  </p>
+
+  <main id="app"></main>
+
+  <footer class="footer">
+    Event log is the memory · stage is computed, never stored · every write is attributed
+  </footer>
+
+  <!-- Load order matters: each module reads the ones above it. -->
+  <script src="dashboard/config.js"></script>
+  <script src="dashboard/sheets-reader.js"></script>
+  <script src="dashboard/identity.js"></script>
+  <script src="dashboard/state-builder.js"></script>
+  <script src="dashboard/event-writer.js"></script>
+  <script src="dashboard/renderer.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
