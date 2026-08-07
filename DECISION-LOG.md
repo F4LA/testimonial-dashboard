@@ -7,6 +7,29 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Wired to the live sheets · API key restriction must be origin-level
+
+**What changed:** the read-only Sheets API key and the Apps Script Web App `/exec` URL were committed into `dashboard/config.js`. `setupPhase1()` was run on the Membership account: the `Cycle` header is in F1, the `Settings` tab exists with the 8 defaults, spreadsheet timezone is **America/Guayaquil**. GitHub Pages is live at `https://f4la.github.io/testimonial-dashboard/`.
+
+**The gotcha, and the correction.** The setup instructions originally said to restrict the key to `https://f4la.github.io/testimonial-dashboard/*`. **That can never work.** Browsers send only the *origin* as the `Referer` on cross-origin requests (default `strict-origin-when-cross-origin` strips the path), so Google sees `https://f4la.github.io/` and the path-scoped rule fails with *"Requests from referer https://f4la.github.io/ are blocked."*
+
+Verified by comparing against the key Coach Pulse already runs in production:
+
+| Referer sent | New key | Coach Pulse key |
+|---|---|---|
+| `https://f4la.github.io/<path>/` | 200 | 200 |
+| `https://f4la.github.io/` | **403** | 200 |
+
+**Correct restriction:** `https://f4la.github.io/*`. Consequence: any page on `f4la.github.io` can use the key — that host is entirely ours, the key is read-only, restricted to the Sheets API, and limited to spreadsheets already link-readable. Path scoping is not achievable with a browser-side key. Documented in `DASHBOARD-SYSTEM.md` §2.4.
+
+The restriction is genuinely enforced otherwise — `https://evil.example/` and a request with no referrer both return **403**.
+
+**Live event log at this point:** 43 rows, 5 clients, all `AUTO`, all with a blank `Cycle` (so all fold to cycle 1). Stage counts are uneven — 11 `Collection — Loom` against 8 of each other pipe — which is more of the engine re-running that the fold's last-write-wins rule already handles.
+
+**Files / commits:** `dashboard/config.js` · `DASHBOARD-SYSTEM.md` · `DECISION-LOG.md` · dc9c619
+
+---
+
 ## 2026-08-07 — Phase 1: Foundation
 
 **What was built:** repo scaffolding (`index.html`, `app.js`, `styles.css`, `dashboard/`), governance docs, the read path (Sheets API), the write path (Apps Script proxy), the Settings tab, identity resolution, and the event-log fold keyed on (email, cycle).

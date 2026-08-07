@@ -1,7 +1,7 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
 **Last updated: 2026-08-07**
-**Phase: 1 (Foundation) complete. Phases 2–5 not built.**
+**Phase: 1 (Foundation) complete and wired to the live sheets. Phases 2–5 not built.**
 
 **Living document · Permanent source of truth · Internal use**
 Describes how the Testimonial Dashboard actually works: its architecture, every module, every rule, and the reasons behind them. This is not a one-off handover — it is the canonical reference, kept current with every change.
@@ -25,7 +25,7 @@ Describes how the Testimonial Dashboard actually works: its architecture, every 
 An internal operations tool for the Strong Standard testimonial process. It replaces the Asana board **and** the multi-tab tracker spreadsheet.
 
 - **Frontend:** vanilla HTML/CSS/JS, no framework, no build step. Hosted on GitHub Pages at `https://f4la.github.io/testimonial-dashboard/`. Repo `F4LA/testimonial-dashboard`. Auto-deploys ~1 min after each push to `main`.
-- **Reads:** Google Sheets API v4 with a read-only API key restricted by HTTP referrer to the Pages URL. Safe to commit — same posture as Coach Pulse.
+- **Reads:** Google Sheets API v4 with a read-only API key restricted by HTTP referrer to the Pages **origin**. Safe to commit — same posture as Coach Pulse. See §2.4 for why the restriction is origin-level and not path-level.
 - **Writes:** a Google Apps Script Web App acting as a proxy. The frontend POSTs; the script appends one row to the event log. This is the only write path.
 - **Memory:** the append-only event log. The dashboard has no store of its own and no cache.
 
@@ -77,6 +77,14 @@ One row **per contract**, so an email can appear many times (today: 466 rows, 32
 | Coach Slack | — | **not present** — resolved via the coach→Slack map harvested from the Roster |
 
 `Contract Start` (col G) mixes formats in the same column: `August 5, 2024` **and** `5/6/2026`. The parser handles both and falls back to `Date Purchased` (col F, `M/D/YYYY`).
+
+### 2.4 The API key restriction is origin-level, not path-level
+
+The read key must be restricted to **`https://f4la.github.io/*`**, not `https://f4la.github.io/testimonial-dashboard/*`.
+
+Browsers send only the **origin** as the `Referer` on cross-origin requests — the default `strict-origin-when-cross-origin` policy strips the path before the request leaves the page. Google therefore sees `https://f4la.github.io/` and a path-scoped restriction never matches, failing with *"Requests from referer https://f4la.github.io/ are blocked."* Coach Pulse's key is origin-scoped, which is why it works.
+
+**What this means in practice:** any page hosted on `f4la.github.io` can use this key. That whole host is ours, the key is read-only, it is restricted to the Sheets API alone, and it can only reach spreadsheets that are already link-readable. Path-level scoping is not achievable with a browser-side key; if a stricter boundary is ever needed, the read path has to move behind the Apps Script proxy.
 
 ---
 
