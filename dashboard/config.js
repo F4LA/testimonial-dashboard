@@ -40,10 +40,14 @@
     /* ---------- Sheets API key (read-only, referrer-restricted) ----------
      * Safe to commit: restricted to https://f4la.github.io/testimonial-dashboard/*
      * Same posture as Coach Pulse. Replace the placeholder once created. */
-    API_KEY: "PASTE_READ_ONLY_API_KEY_HERE",
+    API_KEY: "AIzaSyC67SNI85Q1Ra8qUmYERgF_cOBuzZDexx0",
 
-    /* ---------- Apps Script Web App (the only write path) ---------- */
-    WEB_APP_URL: "PASTE_APPS_SCRIPT_WEB_APP_URL_HERE",
+    /* ---------- Apps Script Web App (the only write path) ----------
+     * Standalone project on the Membership account (owner of the Event Log).
+     * Deliberately NOT container-bound to the spreadsheet, so it can never
+     * touch the live collection engine's script project.
+     * Spreadsheet timezone: America/Guayaquil. */
+    WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzx91ZuUb4zqHmVWpu4tmhvERURJo5CpQAujYySp7oLjMIh8G0C-E-Aqll5X-MnC3gZ/exec",
 
     /* ---------- Event Log columns (0-indexed) ----------
      * A–E are LIVE and written by the deployed collection engine.
