@@ -367,6 +367,14 @@ There is no folder watch, no periodic scan, and Apps Script has no Drive change 
 
 **Consequence:** when a client uploads their video, *nothing fires*. See §4.4 for how Collecting entry is detected.
 
+### Engine bug: `logEvent_` and the ambient spreadsheet
+
+`logEvent_` originally resolved the Event Log through `SpreadsheetApp.getActiveSpreadsheet()`. That returns the spreadsheet the *running trigger* is attached to, not the script's container — so `onSignalEdit` (attached to Signal & Event Log) logged fine, while `onCoachFormSubmit` (attached to the coach form responses file) found no `Event Log` tab, hit `if (!tab) return;`, and dropped every write silently, with status Completed and no error. Folder-04 routing still worked because it uses DriveApp.
+
+Fixed 2026-08-07 by resolving the log by id via a new `SIGNAL_SHEET_ID` Script Property — see `apps-script/engine-fix-logEvent.gs`. The same fix makes the time-driven `Nomination` events reliable, since `getActiveSpreadsheet()` can be null in that context.
+
+**Consequence for reading this system:** an engine handler running to Completed does **not** mean it wrote an event. Verify in the Event Log itself.
+
 ### ⚠️ Open launch gap: the coach form trigger
 
 As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. **`onCoachFormSubmit` is absent.** Unlike the video handler, this one was never abandoned — the coach form is one of the five collected inputs and the fan-out DMs each coach a link to it. Without the trigger, coach responses at launch are silently lost: nothing routes them to folder 04 and no event is written. Repair steps live in `apps-script/engine-one-time-coach-form-trigger.gs`. This is a launch issue independent of the dashboard.

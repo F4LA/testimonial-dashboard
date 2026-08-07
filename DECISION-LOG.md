@@ -7,6 +7,29 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Engine bug: `logEvent_` silently dropped every write from a form-bound trigger
+
+**Symptom.** The coach form routed correctly to folder 04 but wrote no `Collection — coach form` row. The Executions panel showed the `onCoachFormSubmit` run (TEST 3, 3:37:22 PM) as **Completed with no error**. The live Event Log held 69 rows and zero coach-form rows.
+
+**Root cause, confirmed in the engine source (line 505):**
+
+```js
+var tab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(prop_('EVENTS_TAB'));
+if (!tab) return;
+```
+
+`getActiveSpreadsheet()` returns the spreadsheet the *running trigger* is attached to, not the script's container. `onSignalEdit` is attached to Signal & Event Log, so the fan-out has always logged fine — which is why 69 rows exist and the bug stayed invisible. `onCoachFormSubmit` is attached to the coach form **responses** file, which has no `Event Log` tab, so `tab` was null and the function returned. Silent, no error, status Completed. Folder-04 routing still worked because that path uses DriveApp, never the sheet.
+
+**Fix:** resolve the log by id instead of by ambient context, via one new Script Property `SIGNAL_SHEET_ID`. Recorded in `apps-script/engine-fix-logEvent.gs`. `prop_()` is called without the optional flag and `openById()` throws on a bad id, so a missing or wrong property now fails **loudly** in the Executions panel rather than skipping the write — silent failure was the entire defect. Nothing else in the engine is touched.
+
+**Second exposure the same fix covers:** in a time-driven trigger `getActiveSpreadsheet()` can be null, which would make the original line throw. That is `sendMonthlyNominationMessage`'s two `Nomination` events; they become reliable too.
+
+**⚠️ Character trap, again.** The id pasted for the new property was `…eGlKmo` (lowercase L) and **404s**. The correct id is `…eGIKmo` (capital I) — verified against the Sheets API, 200 vs 404. Identical to the failure that produced a dead Roster id in the data reference. Any Google id handled in this project should be diffed and probed, never eyeballed.
+
+**Files / commits:** `apps-script/engine-fix-logEvent.gs` · `DECISION-LOG.md`
+
+---
+
 ## 2026-08-07 — Phase 2: pipeline board + client card, on the corrected fold
 
 **What was built:** `dashboard/pipeline-board.js` and `dashboard/client-card.js`; `renderer.js` became the shell (nav, actor picker, hash routing) and kept the Phase 1 diagnostics as the Foundation view. Six corrections were applied to the fold first.
