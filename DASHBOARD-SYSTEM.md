@@ -268,7 +268,55 @@ Not the dashboard — the foundation made visible, so the plumbing can be tested
 
 ---
 
-## 11. Not built yet
+## 11. The collection engine — what is live, and what is dead code
+
+The engine is a container-bound Apps Script on the Signal & Event Log spreadsheet. A working copy of its source is at `~/Downloads/collection-engine.gs.txt`. **Reading that source is not enough to know what runs** — several handlers are only wired up conditionally, and one is deliberately dead. Check the Triggers list, not just the code.
+
+### It writes nine Stage strings, not five
+
+| Stage string | Written by | Live? |
+|---|---|---|
+| `Collection — folder` | fan-out | ✅ |
+| `Collection — client video link` | fan-out — folder 03 **shared** | ✅ |
+| `Collection — Meet` | fan-out | ✅ |
+| `Collection — Loom` | fan-out | ✅ |
+| `Collection — coach notice` | fan-out | ✅ |
+| `Collection — coach form` | `onCoachFormSubmit` | ⚠️ trigger missing — see below |
+| `Collection — client video` | `onClientVideoSubmit` | ☠️ **dead by decision** |
+| `Confirmation` | name doesn't resolve — **empty Client email** | ✅ |
+| `Nomination` | monthly nomination posted — **empty Client email** | ✅ |
+
+Only the **five fan-out strings** imply the Invited stage. The two form events fire later in the process and must never be used for that inference.
+
+### ☠️ `onClientVideoSubmit` is dead code — do not install it
+
+**Authority: decisions D-059, D-063, D-065.** The client video does **not** arrive through a Google Form. D-059 rejected a Forms file-upload question because it forces a client Google login — worse for a 40+/low-tech audience — so the client uploads **directly into their `03 · Client video` Drive folder** via the link in the kickoff email (D-063), validated live in incognito with no login (D-065). D-054's English rewrite renamed the old handler rather than deleting it.
+
+Dead inventory:
+
+| Item | Status |
+|---|---|
+| `onClientVideoSubmit` (lines 919–972) | dead — abandoned form flow |
+| `CLIENT_FORM_SHEET_ID` · `CLIENT_FORM_HDR_EMAIL` · `CLIENT_FORM_HDR_VIDEO` | dead properties |
+| `Collection — client video` | never written in the real flow |
+| `'Client video (their story)'` status line | orphaned — only the dead handler calls `markStatus_` for it |
+| `formRow_` (1003–1021) | **keep** — shared with `onCoachFormSubmit` |
+
+Re-running `installTriggers()` would **resurrect** this handler whenever `CLIENT_FORM_SHEET_ID` is still set, and it deletes every trigger before recreating them. Do not run it. Use `apps-script/engine-one-time-coach-form-trigger.gs` instead, which is additive.
+
+### Nothing watches Drive folder 03
+
+There is no folder watch, no periodic scan, and Apps Script has no Drive change trigger. The only time-driven trigger in the engine sends the monthly nomination message. Every `DriveApp` folder iteration in the source is write-path plumbing (create folder, copy template, find subfolder, read the status file); none enumerates folder 03.
+
+**Consequence:** when a client uploads their video, *nothing fires*. See §4.4 for how Collecting entry is detected.
+
+### ⚠️ Open launch gap: the coach form trigger
+
+As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. **`onCoachFormSubmit` is absent.** Unlike the video handler, this one was never abandoned — the coach form is one of the five collected inputs and the fan-out DMs each coach a link to it. Without the trigger, coach responses at launch are silently lost: nothing routes them to folder 04 and no event is written. Repair steps live in `apps-script/engine-one-time-coach-form-trigger.gs`. This is a launch issue independent of the dashboard.
+
+---
+
+## 12. Not built yet
 
 Phases 2–5: pipeline board, client card, action queue, Slack digest, calendar + buffer, raffle, reviews, podcast / client of the month. See the spec §8.
 

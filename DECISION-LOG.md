@@ -7,6 +7,46 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Collecting entry decided · engine dead code recorded · coach form trigger gap found
+
+**Context.** Before building Phase 2, two things had to be settled: what event marks Invited → Collecting, and the exact engine vocabulary the client card's input checklist reads.
+
+### The engine writes nine Stage strings, not the five in the data reference
+
+Extracted from every `logEvent_` call site: the five fan-out strings plus `Collection — coach form`, `Collection — client video`, `Confirmation`, and `Nomination`. The last two write with an **empty Client email**. Documented in `DASHBOARD-SYSTEM.md` §11.
+
+### `onClientVideoSubmit` is dead code — corrected course
+
+Reading the engine source, `Collection — client video` looked like a live video-arrival event and was proposed as the Collecting trigger. **That was wrong.** Bernardo's decision log is the authority: D-059 rejected a Forms file-upload question (it forces a client Google login — worse for a 40+/low-tech audience), D-063 pointed the kickoff email at each client's `03 · Client video` folder, and D-065 validated a no-login upload live in incognito. D-054's English rewrite renamed the old handler instead of deleting it.
+
+**Lesson recorded:** source presence ≠ live behavior. The conditional `if (cf)` around the trigger was the tell, and it was read as "unwired" rather than "deliberately dead." Verify against the Triggers list **and** the decision log, not the source alone.
+
+### Nothing watches folder 03 — confirmed structurally
+
+Only four entry points exist in the engine, and the sole time-driven one sends the monthly nomination. All 15 `DriveApp` iterations are write-path plumbing; none enumerates folder 03. Apps Script has no Drive change trigger. So a client upload fires nothing.
+
+### Decision: Collecting entry is manual now, automated later
+
+**Option A — Gaby marks it — is the primary path.** `Collection — video uploaded`, `MANUAL - Gaby`.
+
+**Why:** volume is tiny (10–15/month), it needs zero new code in a live engine three days before launch, and the fold does not care who writes the event. Collecting entry is defined as `Collection — video uploaded` **OR** `Collection — client video`, whichever appears — so detection can be upgraded later with no downstream rework, and the manual path always remains as an override.
+
+**Option C — poll folder 03 from the dashboard's own standalone script — is the planned upgrade, after launch.** It gets the same capability without touching the engine. Deferred: Drive access for the Membership account and an `AUTO - dashboard` Source convention are unsettled, and neither is needed yet. Option B (polling from inside the live engine) was rejected as unnecessary risk pre-launch.
+
+A poll of either kind must not test "is folder 03 non-empty" — `copyStructure_` copies template files into every subfolder, so 03 is non-empty from creation. The sound test is `getDateCreated()` later than the folder's own creation.
+
+In Phase 3 this becomes a queued task: clients sitting in Invited generate a "check for uploads" item in Gaby's list, with the card linking straight to folder 03; she either marks it received or does a client reach-out.
+
+### ⚠️ Launch gap found: `onCoachFormSubmit` is not installed
+
+The engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. The missing video trigger is correct; the **missing coach form trigger is not** — that path was never abandoned, and without it coach responses at launch are silently lost. The empty log is not evidence either way (no coach has submitted yet — the test clients belong to Bernardo and Brent, neither of whom filled the form).
+
+Repair is additive and lives in `apps-script/engine-one-time-coach-form-trigger.gs`: a read-only `checkCoachFormWiring()` preflight plus `installCoachFormTriggerOnly()`. **`installTriggers()` must not be re-run** — it deletes every trigger before recreating them (a mid-run failure leaves the fan-out dead) and it reinstalls the dead `onClientVideoSubmit` whenever `CLIENT_FORM_SHEET_ID` is still set. The Triggers UI cannot do this by hand either: it only binds to the script's container spreadsheet, and the coach form responses live in a different file.
+
+**Files / commits:** `apps-script/engine-one-time-coach-form-trigger.gs` · `DASHBOARD-SYSTEM.md` · `DECISION-LOG.md`
+
+---
+
 ## 2026-08-07 — Wired to the live sheets · API key restriction must be origin-level
 
 **What changed:** the read-only Sheets API key and the Apps Script Web App `/exec` URL were committed into `dashboard/config.js`. `setupPhase1()` was run on the Membership account: the `Cycle` header is in F1, the `Settings` tab exists with the 8 defaults, spreadsheet timezone is **America/Guayaquil**. GitHub Pages is live at `https://f4la.github.io/testimonial-dashboard/`.
