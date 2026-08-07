@@ -29,13 +29,16 @@ var CYCLE_HEADER  = 'Cycle';
  *  too, so a bad client can never write an unattributed row. */
 var PEOPLE = ['Joey', 'Miguel', 'Gaby', 'Bernardo', 'Sofi'];
 
-/** The approved dashboard Stage vocabulary. The five engine strings are
- *  deliberately absent: this script must never forge an engine event. */
+/** The approved dashboard Stage vocabulary. All NINE engine strings are
+ *  deliberately absent — including the two form-driven ones (Collection —
+ *  coach form / client video) and the two system-level ones (Confirmation,
+ *  Nomination). This script must never forge an event the engine owns.
+ *  Kept in lockstep with TDConfig.STAGES in dashboard/config.js. */
 var ALLOWED_STAGES = [
   'Nomination — logged', 'Nomination — coach warm-up done',
   'Outreach — sent', 'Outreach — client accepted',
   'Invite — kickoff sent',
-  'Collection — video uploaded', 'Collection — coach form received',
+  'Collection — video uploaded',
   'Collection — Everfit data', 'Collection — photos received',
   'Collection — complete', 'Collection — manual review resolved',
   'Production — carousel', 'Production — story', 'Production — reel',

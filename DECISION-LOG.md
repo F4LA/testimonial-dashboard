@@ -7,6 +7,37 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Phase 2: pipeline board + client card, on the corrected fold
+
+**What was built:** `dashboard/pipeline-board.js` and `dashboard/client-card.js`; `renderer.js` became the shell (nav, actor picker, hash routing) and kept the Phase 1 diagnostics as the Foundation view. Six corrections were applied to the fold first.
+
+### The six fixes
+
+1. **Collecting entry accepts either source.** `Collection — video uploaded` (manual) **OR** `Collection — client video` (engine), in a `received` or `partial` state. `partial` counts — "video received; transcript not downloaded" means the video is there. Accepting both means the planned folder-03 poll drops in later with no downstream change.
+2. **Coach form reads the engine's `Collection — coach form`.** The dashboard duplicate `Collection — coach form received` was retired; the vocabulary is now 41 strings, matched in `Code.gs`.
+3. **Four-state inputs** — `received` / `partial` / `flagged` / `missing`, classified per pipe from the engine's own branch conditions, mirroring its ✅ / ⚠❌ / 🚩 status vocabulary. The old binary test reported `Could not download the transcript for …` and `… — copies failed, review manually` as healthy; both are real failures with no `Flag:` prefix. Verified against 15 real strings from the live log.
+4. **Empty-email rows go to a System events bucket.** `Confirmation` and an unresolved coach-form selector are written with no client email; folding them by email invented a phantom testimonial keyed `::1`. They now surface as manual review on the Foundation view.
+5. **Timestamps are read as serials.** The Event Log is fetched with `UNFORMATTED_VALUE` and converted with a fixed −05:00 offset. Previously the fold parsed a *display format*, so changing that column's number format would have NaN'd every timestamp at once; and "time in stage" was computed in the viewer's timezone, wrong for anyone outside Ecuador. Phase 3's thresholds depend on this.
+6. **The Invited inference is locked to the five fan-out strings.** `CFG.ENGINE_FANOUT` is separate from `CFG.ENGINE`. The engine's other four (`Collection — coach form`, `Collection — client video`, `Confirmation`, `Nomination`) fire later or carry no client, and must never advance a stage. Asserted in the test: 0 leaked.
+
+Also: all **nine** engine strings are now in the never-write guard on both sides, not just the five fan-out ones.
+
+### New read: the Signal tab
+
+The event log records the client folder's *name*, never its URL. Signal column E holds the surfaced folder-03 link, joined back through the roster by name. Without it the client card cannot link to folder 03 — which is the entire manual video workflow decided above.
+
+### Verified against live data before pushing
+
+7 testimonials, 69 events, all at Invited (inferred), 0 unresolved identities, 6 open flags. The four-state classifier was exercised on 15 real strings; the live log produced genuine variation (`Looms` reading `received`, `partial`, and `flagged` across different clients). Timezone check: serial `46241.28888889` → `7 Aug 2026, 6:56` → `11:56Z`. Frontend and Apps Script vocabularies diff to zero.
+
+### Scope notes
+
+The card exposes stage-advance actions for Scheduled and Published so the pipeline is traversable end to end; Phase 4 replaces them with the calendar. Recognitions is read-only until Phase 5.
+
+**Files / commits:** `dashboard/{config,sheets-reader,state-builder,event-writer,pipeline-board,client-card,renderer}.js` · `app.js` · `index.html` · `styles.css` · `apps-script/Code.gs` · `DASHBOARD-SYSTEM.md` · `DECISION-LOG.md`
+
+---
+
 ## 2026-08-07 — Collecting entry decided · engine dead code recorded · coach form trigger gap found
 
 **Context.** Before building Phase 2, two things had to be settled: what event marks Invited → Collecting, and the exact engine vocabulary the client card's input checklist reads.

@@ -5,11 +5,15 @@
  * normalizes them into plain JS objects. This module does no interpretation:
  * it reads rows and shapes them. All meaning is added in state-builder.js.
  *
- * Sources:
- *   Event Log        — the append-only memory (required)
- *   Roster           — active 1:1 clients, identity (required)
- *   Mastersheet Data — every contract ever, identity fallback (required)
- *   Settings         — adjustable thresholds (OPTIONAL, may not exist yet)
+ * Render modes matter here:
+ *   Event Log  → UNFORMATTED_VALUE. "Date and time" is stored as a date
+ *                SERIAL, not text — Sheets coerces the engine's string on
+ *                append. Reading FORMATTED_VALUE would parse a display
+ *                format instead of data, so a change to that column's number
+ *                format would silently break every timestamp at once.
+ *   Roster /   → FORMATTED_VALUE. Their date columns are read as human
+ *   Mastersheet  strings by identity.js (and mix formats), so the displayed
+ *                text is what we want.
  */
 (function (root) {
   "use strict";
@@ -25,14 +29,15 @@
     return (v == null) ? "" : String(v).trim();
   }
 
-  function buildUrl(sheetId, tab, range) {
+  function buildUrl(sheetId, tab, range, renderMode) {
     var target = tab + (range ? "!" + range : "");
     return BASE + "/" + sheetId + "/values/" + encodeURIComponent(target) +
-           "?key=" + encodeURIComponent(CFG.API_KEY);
+           "?key=" + encodeURIComponent(CFG.API_KEY) +
+           "&valueRenderOption=" + (renderMode || "FORMATTED_VALUE");
   }
 
-  function fetchSheet(sheetId, tab, range) {
-    return fetch(buildUrl(sheetId, tab, range))
+  function fetchSheet(sheetId, tab, range, renderMode) {
+    return fetch(buildUrl(sheetId, tab, range, renderMode))
       .then(function (res) {
         if (res.ok) return res.json();
         return res.json().catch(function () { return null; }).then(function (body) {
@@ -45,12 +50,11 @@
       .then(function (data) { return (data && data.values) || []; });
   }
 
-  /** Never rejects — resolves to [] if the tab is missing or unreadable.
-   *  Used for Settings, which does not exist until the one-time setup runs. */
-  function fetchSheetOptional(sheetId, tab, range) {
-    return fetchSheet(sheetId, tab, range).catch(function (err) {
+  /** Never rejects — resolves to null if the tab is missing or unreadable. */
+  function fetchSheetOptional(sheetId, tab, range, renderMode) {
+    return fetchSheet(sheetId, tab, range, renderMode).catch(function (err) {
       if (root.console) root.console.warn("[sheets-reader] optional tab unavailable [" + tab + "]: " + err.message);
-      return null;   // null (not []) so callers can tell "missing" from "empty"
+      return null;
     });
   }
 
@@ -59,31 +63,34 @@
   /**
    * Event Log rows.
    *
-   * rowNumber is the real 1-based spreadsheet row. It is the tiebreaker for
-   * ordering: "Date and time" has minute resolution and no seconds, so several
-   * events can share a timestamp. Append order is truth; never lose it.
+   * rowNumber is the real 1-based spreadsheet row and is the tiebreaker for
+   * ordering: the timestamp has minute resolution and no seconds, so a single
+   * fan-out writes several events sharing one value. Append order is truth.
+   *
+   * dateRaw is left as-is — a number (serial) normally, a string if a cell
+   * was ever typed as text. state-builder handles both.
    */
   function parseEventLog(rows) {
     var C = CFG.EVENT_COLS;
     var out = [];
-    for (var i = 1; i < rows.length; i++) {          // row 0 is the header
+    for (var i = 1; i < rows.length; i++) {
       var r = rows[i];
       var email = cell(r, C.EMAIL).toLowerCase();
       var stage = cell(r, C.STAGE);
-      if (!email && !stage) continue;                // skip blank rows
+      if (!email && !stage) continue;                 // blank row
       var rawCycle = cell(r, C.CYCLE);
       var cycle = parseInt(rawCycle, 10);
       out.push({
-        email:     email,
-        stage:     stage,
-        dateRaw:   cell(r, C.DATE),
-        event:     cell(r, C.EVENT),
-        source:    cell(r, C.SOURCE),
-        // Blank cycle folds to 1 — that is every row the engine has ever
-        // written, since the column did not exist when they were written.
-        cycle:     (isFinite(cycle) && cycle > 0) ? cycle : CFG.DEFAULT_CYCLE,
+        email:      email,                            // may be "" — engine system rows
+        stage:      stage,
+        dateRaw:    (r && r.length > C.DATE) ? r[C.DATE] : "",
+        event:      cell(r, C.EVENT),
+        source:     cell(r, C.SOURCE),
+        // Blank cycle folds to 1 — every row the engine has ever written,
+        // since the column did not exist when they were written.
+        cycle:      (isFinite(cycle) && cycle > 0) ? cycle : CFG.DEFAULT_CYCLE,
         cycleBlank: rawCycle === "",
-        rowNumber: i + 1
+        rowNumber:  i + 1
       });
     }
     return out;
@@ -115,11 +122,9 @@
   }
 
   /**
-   * Mastersheet Data — one row PER CONTRACT, so an email can appear many times
-   * (94 of 323 emails do today; one has 8). Rows are kept as-is here; picking
-   * the most recent contract is identity.js's job.
-   *
-   * Neither a full-name column nor a coach Slack column exists here.
+   * Mastersheet Data — one row PER CONTRACT, so an email can appear many
+   * times. Picking the most recent is identity.js's job. Neither a full-name
+   * column nor a coach Slack column exists here.
    */
   function parseMastersheet(rows) {
     var C = CFG.MASTER_COLS;
@@ -147,11 +152,31 @@
   }
 
   /**
-   * Settings tab: a plain Key | Value sheet. Missing keys fall back to
-   * CFG.SETTINGS_DEFAULTS, so a partial tab is safe.
-   *
-   * @returns {{values:Object, exists:boolean, fromTab:string[]}}
+   * Signal tab — the ephemeral trigger layer. We read exactly one thing from
+   * it: the surfaced folder-03 / client video link, which is the only place
+   * that URL exists (the event log records the folder NAME, not its address).
+   * It keys on the roster NAME, so callers join it back through the roster.
    */
+  function parseSignal(rows) {
+    if (!rows) return [];
+    var C = CFG.SIGNAL_COLS;
+    var out = [];
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i];
+      var name = cell(r, C.CLIENT_NAME);
+      if (!name) continue;
+      out.push({
+        clientName: name,
+        confirmed:  cell(r, C.CONFIRMED),
+        processed:  cell(r, C.PROCESSED),
+        result:     cell(r, C.RESULT),
+        videoLink:  cell(r, C.VIDEO_LINK)
+      });
+    }
+    return out;
+  }
+
+  /** Settings: a plain Key | Value sheet. Missing keys fall back to defaults. */
   function parseSettings(rows) {
     var settings = {};
     var fromTab = [];
@@ -166,7 +191,7 @@
       var key = cell(rows[i], 0);
       var raw = cell(rows[i], 1);
       if (!key || raw === "") continue;
-      if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;  // ignore unknown keys
+      if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;   // ignore unknown keys
       var num = Number(raw);
       settings[key] = (typeof CFG.SETTINGS_DEFAULTS[key] === "number" && isFinite(num)) ? num : raw;
       fromTab.push(key);
@@ -184,21 +209,21 @@
       ));
     }
     return Promise.all([
-      fetchSheet(S.EVENT_LOG.id,   S.EVENT_LOG.tab),
+      fetchSheet(S.EVENT_LOG.id,   S.EVENT_LOG.tab, null, "UNFORMATTED_VALUE"),
       fetchSheet(S.ROSTER.id,      S.ROSTER.tab),
       fetchSheet(S.MASTERSHEET.id, S.MASTERSHEET.tab),
-      fetchSheetOptional(S.SETTINGS.id, S.SETTINGS.tab)
+      fetchSheetOptional(S.SETTINGS.id, S.SETTINGS.tab),
+      fetchSheetOptional(S.SIGNAL.id,   S.SIGNAL.tab)
     ]).then(function (r) {
       var settings = parseSettings(r[3]);
       return {
         events:      parseEventLog(r[0]),
         roster:      parseRoster(r[1]),
         mastersheet: parseMastersheet(r[2]),
+        signal:      parseSignal(r[4]),
         settings:    settings.values,
         settingsTabExists: settings.exists,
         settingsFromTab:   settings.fromTab,
-        // Header row as it actually is right now — used to detect whether the
-        // additive Cycle column has been added yet.
         eventHeaders: (r[0] && r[0][0]) ? r[0][0].slice() : [],
         loadedAt: new Date()
       };
@@ -208,11 +233,12 @@
   root.SheetsReader = {
     loadAll: loadAll,
     fetchSheet: fetchSheet,
-    // Parsers exposed for the write-then-verify check and for offline tests
-    // that run the fold against a real snapshot of the sheets.
-    _parseEventLog:   parseEventLog,
-    _parseRoster:     parseRoster,
-    _parseMastersheet:parseMastersheet,
-    _parseSettings:   parseSettings
+    // Exposed for the write-then-verify check and for offline tests that run
+    // the fold against a real snapshot of the sheets.
+    _parseEventLog:    parseEventLog,
+    _parseRoster:      parseRoster,
+    _parseMastersheet: parseMastersheet,
+    _parseSignal:      parseSignal,
+    _parseSettings:    parseSettings
   };
 })(typeof window !== "undefined" ? window : this);

@@ -40,7 +40,7 @@ Any change to the dashboard — frontend (`index.html`, `app.js`, `styles.css`, 
 ## Build phases
 
 1. **Foundation** ✅ — repo, Pages, governance docs, read path, write path, Settings tab, identity resolution, the event-log fold.
-2. Pipeline + client card
+2. **Pipeline + client card** ✅ — the board (stage computed from events), the client card with its five blocks, notes into the timeline.
 3. Action queue + alerts
 4. Calendar + buffer
 5. Recognitions (raffle, reviews, podcast / client of the month)

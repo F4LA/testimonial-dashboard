@@ -32,9 +32,12 @@
 
   /* ---------- Approved Stage vocabulary ---------- */
 
+  // All NINE engine strings, not just the five fan-out ones. The dashboard
+  // must never be able to forge any event the engine owns — including the
+  // two form-driven ones and the two system-level ones.
   var ENGINE_SET = {};
-  Object.keys(CFG.STAGES.ENGINE).forEach(function (k) {
-    ENGINE_SET[CFG.STAGES.ENGINE[k]] = true;
+  Object.keys(CFG.ENGINE).forEach(function (k) {
+    ENGINE_SET[CFG.ENGINE[k]] = true;
   });
 
   var ALLOWED = {};
@@ -142,7 +145,7 @@
     return new Promise(function (resolve) { setTimeout(resolve, wait); })
       .then(function () {
         var S = CFG.SHEETS.EVENT_LOG;
-        return root.SheetsReader.fetchSheet(S.id, S.tab);
+        return root.SheetsReader.fetchSheet(S.id, S.tab, null, "UNFORMATTED_VALUE");
       })
       .then(function (rows) {
         var parsed = root.SheetsReader._parseEventLog(rows);
