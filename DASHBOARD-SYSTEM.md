@@ -177,7 +177,26 @@ Classification is per pipe (`StateBuilder.CLASSIFIERS`), following the engine's 
 
 A flag is **open only while it is still the newest word** on that input: a later successful run clears it, as does a `Collection — manual review resolved` event whose text names the input.
 
-### 4.6 Production pieces
+### 4.6 What gates Collecting → Producing
+
+Spec §4.1 conjoins "all required inputs present" with Gaby's check. **"Required" is not "all six."**
+
+| Input | Gates Producing? |
+|---|---|
+| Client video | ✅ **required** — no video, no testimonial |
+| Everfit data | ✅ **required** — Gaby's manual pull |
+| Photos | ✅ **required** — Gaby's manual pull |
+| Coach form · Meet notes · Looms | ❌ **never** |
+
+**Automatic-input flags must never block.** The engine fetched whatever existed and flagged the rest; a flag there frequently means *this client has none* — no Loom was ever recorded, no Gemini note carries their email. Nobody can resolve that, so gating on it would strand the testimonial in Collecting permanently. Benjamin Jayne is the live case: Meet and Looms both flagged, neither resolvable.
+
+The asymmetry that makes this safe: **a manual input can always be satisfied by the person; an automatic one cannot.** Gating only on manual inputs plus the video can never produce a state no human can exit.
+
+`Collection — complete` stays its **own explicit event**, not something derived from the two manual dots. The dots are arrival facts; the button is Gaby's judgment that her part is done. Deriving it would make marking photos silently advance the pipeline stage.
+
+The gate lives at the point of action (`ClientCard.collectionLock`), not in the fold. Enforcing it in the fold would mean an event that exists but does not take effect, and would let the stage **regress** if an input later re-flagged — breaking the monotonic ladder. A `partial` video counts as present; a `flagged` one does not.
+
+### 4.7 Production pieces
 
 Five pieces: carousel, story, reel, case study + landing page, weekly email. A `Production — …` event means done; its `Event` text carries the link and comment. When all five exist, `readyForReview` is true and the approval controls open on the card.
 

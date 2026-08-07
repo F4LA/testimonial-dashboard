@@ -7,6 +7,34 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Collecting → Producing gate · duplicate-write bug fixed
+
+### The gate: automatic-input flags never block
+
+Proposed initially as "all inputs present and unflagged." **Bernardo corrected the scope, and the correction is right.** Meet and Loom flags frequently mean *this client has none* — no Loom was ever recorded, no Gemini note carries their email. Nobody can resolve that, so gating on them would freeze a testimonial in Collecting forever. Benjamin Jayne is the live case: both flagged, neither resolvable.
+
+**What gates Producing:** the client video is present **and** Gaby has marked her manual pulls (Everfit data, photos). Nothing else.
+
+The principle underneath, worth keeping: **a manual input can always be satisfied by the person; an automatic one cannot.** Gating only on manual inputs plus the video can never produce a state no human can exit.
+
+`Collection — complete` stays its **own explicit event** rather than being derived from the two manual dots. The dots are arrival facts; the button is Gaby's judgment that her part is done. Deriving it would make marking photos silently advance the pipeline stage.
+
+The gate lives at the point of action (`ClientCard.collectionLock`), not in the fold. In the fold it would mean an event that exists but does not take effect, and the stage could **regress** if an input later re-flagged, breaking the monotonic ladder. A `partial` video counts as present; a `flagged` one does not. Disabled state names what is outstanding.
+
+Verified against all seven live testimonials: Benjamin's blockers are `["Everfit data","photos"]` — Meet and Loom absent from the list.
+
+### Duplicate-write bug (introduced in Phase 2, found by the video test)
+
+Benjamin's video test appended **three identical rows** (73, 74, 75) from one session. `ClientCard.wire()` attached a delegated click listener to `#app` on **every** render. `#app` is never replaced — only its innerHTML is — so listeners accumulated, and because a successful write triggers a re-render, each subsequent click fired once per prior render.
+
+The log is append-only, so those duplicate rows are permanent; they join the pre-launch cleanup list. State is unaffected (last-write-wins), but the same bug on a `Production — …` link or a `Pipeline — declined` would have been materially worse.
+
+Fixed by attaching the handler exactly once and carrying the current testimonial in a module-level `ctx`. Regression test: five renders followed by one click now produces **one** `appendEvent` call, previously five.
+
+**Files / commits:** `dashboard/client-card.js` · `DASHBOARD-SYSTEM.md` §4.6 · `DECISION-LOG.md`
+
+---
+
 ## 2026-08-07 — Engine bug: `logEvent_` silently dropped every write from a form-bound trigger
 
 **Symptom.** The coach form routed correctly to folder 04 but wrote no `Collection — coach form` row. The Executions panel showed the `onCoachFormSubmit` run (TEST 3, 3:37:22 PM) as **Completed with no error**. The live Event Log held 69 rows and zero coach-form rows.

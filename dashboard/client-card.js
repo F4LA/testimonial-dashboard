@@ -79,6 +79,40 @@
 
   /* ---------- 2 · Input checklist ---------- */
 
+  /**
+   * What gates Collecting → Producing.
+   *
+   * Spec §4.1 stage 4 conjoins "all required inputs present" with Gaby's
+   * check. "Required" is NOT "all six":
+   *
+   *   client video  — REQUIRED. No video, no testimonial.
+   *   Everfit data  — REQUIRED. Gaby's manual pull.
+   *   photos        — REQUIRED. Gaby's manual pull.
+   *   Meet · Looms  — NEVER gate. The engine fetched whatever existed and
+   *                   flagged the rest; a flag there frequently means the
+   *                   client simply has none (no Loom was ever recorded, no
+   *                   Gemini note carries their email). Nobody can resolve
+   *                   that, so gating on it would strand the testimonial in
+   *                   Collecting permanently.
+   *
+   * The asymmetry that makes this safe: a MANUAL input can always be
+   * satisfied by the person, an AUTOMATIC one cannot. Gating only on manual
+   * inputs plus the video can never produce a state no human can exit.
+   *
+   * The two manual dots are the precondition; `Collection — complete` stays
+   * its own explicit event — the lock is Gaby's judgment that her part is
+   * done, not a side effect of marking a file received.
+   */
+  function collectionLock(t) {
+    if (t.collectionComplete) return { done: true, blockers: [] };
+    var arrived = root.StateBuilder.arrived;
+    var blockers = [];
+    if (!arrived(t.inputs.video.state))   blockers.push("client video");
+    if (!arrived(t.inputs.everfit.state)) blockers.push("Everfit data");
+    if (!arrived(t.inputs.photos.state))  blockers.push("photos");
+    return { done: false, blockers: blockers };
+  }
+
   function inputsBlock(t) {
     var rows = CFG.INPUTS.map(function (inp) {
       var s = t.inputs[inp.key];
@@ -102,17 +136,26 @@
         "</tr>";
     }).join("");
 
-    var lock = t.collectionComplete
-      ? '<span class="badge badge--ok">collection complete</span>'
-      : '<button class="btn" data-act="collection-complete">Mark collection complete →  Producing</button>';
+    var lock = collectionLock(t);
+    var lockHtml;
+    if (lock.done) {
+      lockHtml = '<span class="badge badge--ok">collection complete</span>' +
+        '<span class="sub">Producing unlocked.</span>';
+    } else if (lock.blockers.length) {
+      lockHtml = '<button class="btn" data-act="collection-complete" disabled>Mark collection complete → Producing</button>' +
+        '<span class="sub">Waiting on: <strong>' + esc(lock.blockers.join(", ")) + "</strong></span>";
+    } else {
+      lockHtml = '<button class="btn" data-act="collection-complete">Mark collection complete → Producing</button>' +
+        '<span class="sub">The client video is in and your manual pulls are marked.</span>';
+    }
 
     return '<section class="section">' +
       "<h3>Input checklist <span class='sub'>· " + t.inputsArrived + "/" + CFG.INPUTS.length + " arrived</span></h3>" +
       '<p class="section__sub">Four of six are written by the engine. The client video is not — nothing watches Drive folder 03, so Gaby marks it after checking.</p>' +
       '<table class="table"><thead><tr><th>Input</th><th>State</th><th>Detail</th><th>When</th><th></th></tr></thead>' +
       "<tbody>" + rows + "</tbody></table>" +
-      '<div class="actions">' + lock +
-      '<span class="sub">This check is the lock that unlocks Producing.</span></div>' +
+      '<div class="actions">' + lockHtml + "</div>" +
+      '<p class="note">Meet notes and Looms never hold up the pipeline. The engine fetched what existed and flagged what did not — a flag there often just means <em>this client has none</em>, which nobody can resolve. Only the client video and the human pulls gate Producing.</p>' +
       "</section>";
   }
 
@@ -285,13 +328,25 @@
            '<div id="cardResult" class="result"></div>';
   }
 
+  // The click handler is delegated on #app, which is NEVER replaced — only its
+  // innerHTML is. Attaching on every render therefore ACCUMULATED listeners,
+  // and since a successful write re-renders, one later click fired N times and
+  // appended N identical rows. The log is append-only, so those duplicates are
+  // permanent. Attach exactly once; carry the current context in `ctx`.
+  var ctx = { state: null, key: null };
+  var wired = false;
+
   function wire(state, key) {
-    var t = state.byKey[key];
-    if (!t) return;
+    ctx.state = state;
+    ctx.key = key;
+    if (wired) return;
     var host = el("app");
     if (!host) return;
+    wired = true;
 
     host.addEventListener("click", function (e) {
+      var t = ctx.state && ctx.state.byKey[ctx.key];
+      if (!t) return;
       var btn = e.target.closest ? e.target.closest("[data-act]") : null;
       if (!btn) return;
       var act = btn.getAttribute("data-act");
@@ -318,8 +373,15 @@
         text  = (rinp ? rinp.label : rk) + " — checked manually and confirmed present";
 
       } else if (act === "collection-complete") {
+        // The button is disabled when blocked; re-check anyway, because this
+        // event is what unlocks Producing and the log is append-only.
+        var lock = collectionLock(t);
+        if (lock.blockers.length) {
+          say("Still waiting on: " + lock.blockers.join(", ") + ".", "bad");
+          return;
+        }
         stage = S.COLLECTION_COMPLETE;
-        text  = "Everfit collection done — all required inputs present";
+        text  = "Everfit collection done — client video, Everfit data and photos in";
 
       } else if (act === "mark-piece") {
         var pk = btn.getAttribute("data-piece");
@@ -372,5 +434,5 @@
     });
   }
 
-  root.ClientCard = { render: render, wire: wire, fmtWhen: fmtWhen };
+  root.ClientCard = { render: render, wire: wire, fmtWhen: fmtWhen, collectionLock: collectionLock };
 })(typeof window !== "undefined" ? window : this);
