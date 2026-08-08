@@ -321,3 +321,59 @@ input[type="text"] { min-width: 220px; }
 .result.ok   { color: var(--ok); }
 .result.warn { color: var(--warn); }
 .result.bad  { color: var(--bad); }
+
+/* ---------- Action queue (Phase 3) ---------- */
+
+.nav__item { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.nav__n {
+  font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 99px;
+  background: var(--line); color: var(--ink-soft); min-width: 16px; text-align: center;
+}
+.nav__n.is-hot { background: var(--bad); color: #fff; }
+
+.qbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  max-width: 1100px; margin: 0 auto 14px;
+}
+.qtabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.qtab {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft);
+}
+.qtab:hover { border-color: var(--ink-soft); }
+.qtab.is-on { background: var(--info-bg); border-color: var(--info-bg); color: var(--accent); }
+.qtab__n {
+  font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 99px;
+  background: var(--bg); color: var(--ink-soft); min-width: 16px; text-align: center;
+}
+.qtab__n.is-over { background: var(--bad); color: #fff; }
+
+.qstats { margin-left: auto; display: flex; gap: 8px; }
+
+.tsev {
+  font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap;
+}
+.tsev--overdue { background: var(--bad-bg);  color: var(--bad); }
+.tsev--due     { background: var(--warn-bg); color: var(--warn); }
+.tsev--review  { background: var(--info-bg); color: var(--info); }
+
+.tasks { list-style: none; margin: 0; padding: 0; }
+.task {
+  display: flex; gap: 14px; align-items: flex-start; justify-content: space-between;
+  padding: 12px 0 12px 12px;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid transparent;
+}
+.task:first-child { border-top: 0; }
+.task--overdue { border-left-color: var(--bad); }
+.task--due     { border-left-color: var(--warn); }
+.task--review  { border-left-color: var(--info); }
+
+.task__main { min-width: 0; flex: 1; }
+.task__title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+.task__detail { font-size: 12px; color: var(--ink-soft); margin-top: 3px; word-break: break-word; }
+.task__meta { margin-top: 5px; font-size: 11.5px; }
+.tlink { text-decoration: none; font-weight: 600; }
+.task__side { display: flex; align-items: center; gap: 8px; flex: none; }

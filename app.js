@@ -27,9 +27,9 @@
         var state = root.StateBuilder.build(data);
         root.TDApp.state = state;
         root.Renderer.render(state);
-        setStatus(state.counts.testimonials + " testimonials · " +
-                  state.counts.events + " events · " +
-                  state.openFlags.length + " flags", "ok");
+        var a = state.alerts;
+        setStatus((a ? a.counts.overdue + " overdue · " + a.counts.total + " tasks · " : "") +
+                  state.counts.testimonials + " testimonials", a && a.counts.overdue ? "bad" : "ok");
         return state;
       })
       .catch(function (err) {

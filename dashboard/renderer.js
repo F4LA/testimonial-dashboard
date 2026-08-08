@@ -29,7 +29,10 @@
     var h = (root.location.hash || "").replace(/^#/, "");
     if (h.indexOf("/client/") === 0) return { view: "client", key: decodeURIComponent(h.slice(8)) };
     if (h === "/foundation")         return { view: "foundation" };
-    return { view: "board" };
+    if (h === "/board")              return { view: "board" };
+    // Spec §5: "the dashboard is the home — the action queue is always there
+    // when someone opens it." An action engine opens on the work, not a board.
+    return { view: "queue" };
   }
 
   /* ---------- Foundation view (Phase 1 diagnostics) ---------- */
@@ -128,13 +131,17 @@
            (sub ? '<p class="section__sub">' + esc(sub) + "</p>" : "") + body + "</section>";
   }
 
-  function renderNav(route) {
+  function renderNav(route, alerts) {
+    var over = alerts ? alerts.counts.overdue : 0;
     var items = [
+      { href: "#/queue",      label: "Queue",      on: route.view === "queue",
+        badge: alerts ? alerts.counts.total : 0, hot: over > 0 },
       { href: "#/board",      label: "Pipeline",   on: route.view === "board" || route.view === "client" },
       { href: "#/foundation", label: "Foundation", on: route.view === "foundation" }
     ];
     return items.map(function (i) {
-      return '<a class="nav__item' + (i.on ? " is-on" : "") + '" href="' + i.href + '">' + esc(i.label) + "</a>";
+      return '<a class="nav__item' + (i.on ? " is-on" : "") + '" href="' + i.href + '">' + esc(i.label) +
+        (i.badge ? '<span class="nav__n' + (i.hot ? " is-hot" : "") + '">' + i.badge + "</span>" : "") + "</a>";
     }).join("");
   }
 
@@ -152,11 +159,16 @@
 
   function render(state) {
     var route = currentRoute();
-    el("nav").innerHTML = renderNav(route);
+    var alerts = root.Alerts.build(state);
+    state.alerts = alerts;
+    el("nav").innerHTML = renderNav(route, alerts);
     el("actorSlot").innerHTML = renderActor();
 
     var host = el("app");
-    if (route.view === "client") {
+    if (route.view === "queue") {
+      host.innerHTML = root.QueueView.render(state, alerts);
+      root.QueueView.wire(state, alerts);
+    } else if (route.view === "client") {
       host.innerHTML = root.ClientCard.render(state, route.key);
       root.ClientCard.wire(state, route.key);
     } else if (route.view === "foundation") {

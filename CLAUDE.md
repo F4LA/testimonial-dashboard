@@ -41,7 +41,7 @@ Any change to the dashboard — frontend (`index.html`, `app.js`, `styles.css`, 
 
 1. **Foundation** ✅ — repo, Pages, governance docs, read path, write path, Settings tab, identity resolution, the event-log fold.
 2. **Pipeline + client card** ✅ — the board (stage computed from events), the client card with its five blocks, notes into the timeline.
-3. Action queue + alerts
+3. **Action queue + alerts** ✅ — per-person queue, alert conditions per stage, manual-review flags as tasks, content channel. The Slack digest is written but NOT wired (see DASHBOARD-SYSTEM.md §10.5).
 4. Calendar + buffer
 5. Recognitions (raffle, reviews, podcast / client of the month)
 

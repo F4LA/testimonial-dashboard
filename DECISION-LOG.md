@@ -7,6 +7,42 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-07 — Phase 3: action queue + alerts
+
+**Built:** `dashboard/alerts.js` (the rules), `dashboard/queue-view.js` (the per-person queue), `apps-script/Digest.gs` (the daily Slack digest — written, **not wired**).
+
+### The queue is now the default view
+
+Spec §5 opens with *"the dashboard is the home — the action queue is always there when someone opens it."* An action engine should open on the work, so `#/queue` is the landing route and Pipeline moved one click away. It defaults to the signed-in person's own list — a queue showing everyone's work is a report, not a worklist.
+
+### Two invariants, both from spec §5
+
+**Every task has exactly one owner** — an alert with no owner is spam. Routing follows the spec exactly, including the one that is easy to get wrong: **the coach form task goes to the coach**, not Gaby. Verified live: Amy Lang's coach-form task is owned by Brent.
+
+**Every threshold comes from the Settings tab**, never from code. `SETTINGS_DEFAULTS` only backfills missing keys.
+
+### The folder-03 task is the video detection mechanism
+
+Nothing watches Drive folder 03, so the standing task for every client in Invited **is** Option A — the human half of Invited → Collecting. It stays one task per client and escalates its wording from "check the folder" to "no video after Nh — nudge the client" once `inviteUploadFollowupHours` passes, rather than spawning a second competing row. Its inline action writes `Collection — video uploaded`. Verified: 5 clients in Invited → exactly 5 tasks, all owned by Gaby.
+
+### Manual-review flags surface but never block
+
+Carried forward from the gate decision. A Meet or Loom flag appears as a `review` task so it is not silently lost, and its own text says *"does not block the pipeline — often just means this client has none."* Only Everfit and photos carry the `blocks Producing` badge. Verified on Benjamin: two blocking tasks (both manual pulls), his two flags not among them.
+
+Closed testimonials raise nothing.
+
+### The Slack digest is deliberately not wired
+
+`Digest.gs` is complete and deployable but installs no trigger and sends nothing. `previewDigest()` returns exactly what would be posted, and sends nothing. Posting to Slack reaches real people, so it needs an explicit decision, plus three values that do not exist yet: Slack addresses for the five people, the testimonial-management channel ID, and confirmation to reuse the engine's bot token.
+
+**⚠️ Registered risk: `Digest.gs` duplicates the fold.** A time trigger has no browser, so it cannot reuse `state-builder.js`; it re-implements last-write-wins, the ordering rule, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, and the alert rules. That is a real second source of truth and the largest maintenance hazard in the repo. `selfCheck()` prints its stage counts and task total so drift is detectable rather than silent. Documented in `DASHBOARD-SYSTEM.md` §10.5.
+
+**Verified against live state:** 16 tasks — 0 overdue, 10 due, 6 review; owners Gaby (15) and Brent (1); 0 tasks without an owner.
+
+**Files / commits:** `dashboard/alerts.js` · `dashboard/queue-view.js` · `dashboard/renderer.js` · `apps-script/Digest.gs` · `app.js` · `index.html` · `styles.css` · `CLAUDE.md` · `DASHBOARD-SYSTEM.md`
+
+---
+
 ## 2026-08-07 — Collecting → Producing gate · duplicate-write bug fixed
 
 ### The gate: automatic-input flags never block

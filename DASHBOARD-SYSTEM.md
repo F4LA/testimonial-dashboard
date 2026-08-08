@@ -1,7 +1,7 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
 **Last updated: 2026-08-07**
-**Phase: 1 (Foundation) and 2 (Pipeline board + client card) complete and live. Phases 3–5 not built.**
+**Phase: 1–3 complete and live (Foundation · Pipeline board + client card · Action queue + alerts). The Slack digest is written but NOT wired. Phases 4–5 not built.**
 
 **Living document · Permanent source of truth · Internal use**
 Describes how the Testimonial Dashboard actually works: its architecture, every module, every rule, and the reasons behind them. This is not a one-off handover — it is the canonical reference, kept current with every change.
@@ -289,15 +289,19 @@ dashboard/
 ├── event-writer.js     ← the only write path + write-then-verify
 ├── pipeline-board.js   ← the board: one card per testimonial, by stage
 ├── client-card.js      ← the five blocks + every action
+├── alerts.js           ← THE RULES: state → owned, thresholded tasks
+├── queue-view.js       ← the per-person action queue
 └── renderer.js         ← shell, nav, actor picker, routing, foundation view
 apps-script/
 ├── Code.gs             ← Web App proxy + one-time setupPhase1()
+├── Digest.gs           ← daily per-owner Slack digest (NOT wired)
+├── engine-fix-logEvent.gs                 ← NOT ours; a repair for the engine
 └── engine-one-time-coach-form-trigger.gs  ← NOT ours; a repair for the engine
 context/                ← build spec + data reference (inputs, not runtime)
 ```
 
 Routes are hash-based, re-rendering from state already in memory (no refetch):
-`#/board` · `#/client/<email>::<cycle>` · `#/foundation`.
+`#/queue` (default) · `#/board` · `#/client/<email>::<cycle>` · `#/foundation`.
 
 `apps-script/Code.gs` **is** the source of truth for the deployed script. Edit here, paste into the editor, redeploy, log it.
 
@@ -341,6 +345,59 @@ Every action appends exactly one event and then re-reads the log to confirm it l
 ### 10.3 Foundation (`#/foundation`)
 
 The Phase 1 diagnostics, kept: setup health, log counts, live Settings with `default`/`from tab` provenance, manual review (unresolved identities, open flags, system flags), and the **System events** table — rows the engine writes with an empty client email, which belong to no testimonial.
+
+---
+
+## 10.4 Action queue (`#/queue`) — the default view
+
+Spec §5: *"the dashboard is the home — the action queue is always there when someone opens it."* An action engine opens on the work, so `#/queue` is the landing route and the Pipeline is one click away.
+
+It defaults to **the signed-in person's own list** — a queue showing everyone's work is a report, not a worklist. Owner tabs switch, `Everyone` shows all.
+
+Each task carries one owner, a plain-language title, the reason, a link to the client card, and — where a single write settles it — an inline action button that appends the same event the card would.
+
+### The rules (`dashboard/alerts.js`)
+
+Two invariants, both from spec §5: **every task has exactly one owner** (an alert with no owner is spam), and **every threshold comes from the Settings tab**, never from code.
+
+| Stage | Task | Owner | Threshold |
+|---|---|---|---|
+| Nominated | Nudge the coach — warm-up not done | Gaby | `nominationWarmupHours` |
+| Outreach | Follow up — no answer | Gaby | `outreachFollowupHours` |
+| Invited | **Check folder 03 for the video** | Gaby | `inviteUploadFollowupHours` |
+| Collecting | Fill the coach form | **the coach** | `collectingStaleHours` |
+| Collecting | Pull Everfit data / photos | Gaby | `collectingStaleHours` |
+| Collecting | Mark collection complete *(appears only once the gate is satisfied)* | Gaby | `collectingStaleHours` |
+| Producing | Each unfinished piece | its owner, **in the content channel** | `producingPieceHours` |
+| Review | Approve | Joey | `approvalPendingHours` |
+| Scheduled | Schedule the post / the email | Gaby | `approvalPendingHours` |
+| any | Manual-review flag · unresolved identity · unattributed engine flag | Gaby | none — always `review` |
+
+Severity is `overdue` past the threshold, `due` inside it, `review` for items with no clock. Both due and overdue are shown: the queue is a worklist, not just an alarm.
+
+**The folder-03 task is the video detection mechanism.** Nothing watches Drive folder 03 (§11), so this standing task for every client in Invited *is* Option A — the human half of Invited → Collecting. It stays one task per client and escalates its wording from "go look" to "nudge the client" once the threshold passes, rather than spawning a second competing row. Its inline action writes `Collection — video uploaded`.
+
+**Manual-review flags never block.** A Meet or Loom flag surfaces so it is not silently lost, and says so in its own text — *"does not block the pipeline — often just means this client has none."* Only the video and Gaby's two manual pulls gate Producing (§4.6).
+
+Closed testimonials raise nothing.
+
+---
+
+## 10.5 Daily Slack digest (`apps-script/Digest.gs`) — written, NOT wired
+
+Spec §5: one DM per person per day with only their own items, plus production items in the existing testimonial-management channel. Same mechanism as the monthly nomination scheduler — an Apps Script time trigger through the existing bot.
+
+**Nothing is installed and nothing sends** until `DIGEST` is filled in and `installDigestTrigger()` is run deliberately. `previewDigest()` returns exactly what would be posted and sends nothing; run it first, every time.
+
+Still required before it can run:
+
+1. Slack addresses for Gaby, Joey, Miguel, Bernardo, Sofi (`DIGEST.PEOPLE_SLACK`). Coaches resolve from roster column J automatically.
+2. The testimonial-management channel ID (`DIGEST.CONTENT_CHANNEL_ID`).
+3. Confirmation to reuse the engine's `SLACK_BOT_TOKEN`, and that the bot is in that channel.
+
+### ⚠️ It duplicates the fold — the main maintenance risk in this repo
+
+A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, and the alert rules. **That is a genuine second source of truth.** Change any of those and both must change. `selfCheck()` prints this file's stage counts and task total so drift against the dashboard is detectable rather than silent.
 
 ---
 
@@ -402,7 +459,7 @@ As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendM
 
 ## 12. Not built yet
 
-**Phase 3** — action queue + alerts: the per-person queue, alert conditions per stage, manual-review flags as tasks, the daily per-owner Slack digest, the content channel for production. Includes the "check folder 03 for uploads" task for clients sitting in Invited.
+**Phase 3 remainder** — the Slack digest exists but is not wired; see §10.5 for the three values still needed.
 
 **Phase 4** — calendar + buffer: the queue view and month view, system-proposed dates, the automatic buffer, the suggestion + dropdown fill. The card's Schedule/Publish buttons are a stopgap until this exists.
 
