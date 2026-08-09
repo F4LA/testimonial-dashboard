@@ -27,13 +27,29 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *  this file without redeploying silently keeps the old code running.
  *    1 — appendEvent
  *    2 — + requestFanout (the fan-out bridge)
- *    3 — + the v2 task-model Stage strings (D-090) */
-var PROXY_VERSION = 3;
+ *    3 — + the v2 task-model Stage strings (D-090)
+ *    4 — + column G "Week" for scheduling (Phase 4) */
+var PROXY_VERSION = 4;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
 var EXPECTED_HEAD = ['Client email', 'Stage', 'Date and time', 'Event', 'Source'];
-var CYCLE_HEADER  = 'Cycle';
+var CYCLE_HEADER  = 'Cycle';    // column F, added in Phase 1
+var WEEK_HEADER   = 'Week';     // column G, added in Phase 4
+
+/**
+ * Phase 4 stores the scheduled week in its OWN column, not in the Event text.
+ * The buffer is the one computation duplicated in Digest.gs, so it must read a
+ * clean structured value rather than parse a token out of free text.
+ * Always the ISO Monday: 2026-08-17.
+ */
+function isIsoMonday_(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  var p = v.split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+  if (d.getUTCFullYear() !== +p[0] || d.getUTCMonth() !== +p[1] - 1 || d.getUTCDate() !== +p[2]) return false;
+  return d.getUTCDay() === 1;   // scheduling is BY WEEK; only a Monday is a week
+}
 
 /** People allowed to act. Mirrors TDConfig.PEOPLE — validated server-side
  *  too, so a bad client can never write an unattributed row. */
@@ -154,10 +170,14 @@ function appendEvent_(b) {
   var stage = String(b.stage || '').trim();
   var text  = String(b.event || '').trim();
   var actor = String(b.actor || '').trim();
+  var week  = String(b.week || '').trim();
   var cycle = parseInt(b.cycle, 10);
   if (!(cycle > 0)) cycle = 1;
 
   if (!email) return { ok: false, message: 'Missing email.' };
+  if (week && !isIsoMonday_(week)) {
+    return { ok: false, message: 'Week must be an ISO Monday (e.g. 2026-08-17). Got: "' + week + '".' };
+  }
   if (PEOPLE.indexOf(actor) < 0) return { ok: false, message: 'Unknown or missing actor: "' + actor + '".' };
   if (ALLOWED_STAGES.indexOf(stage) < 0) return { ok: false, message: 'Stage not in the approved vocabulary: "' + stage + '".' };
 
@@ -170,15 +190,28 @@ function appendEvent_(b) {
     var guard = assertHeader_(sh);
     if (!guard.ok) return guard;
 
+    // Only demanded when a week is actually being written, so every other
+    // action keeps working before setupPhase4() has run.
+    if (week) {
+      var head7 = sh.getRange(1, 1, 1, Math.max(7, sh.getLastColumn())).getValues()[0];
+      if (String(head7[6]).trim() !== WEEK_HEADER) {
+        return { ok: false, message: 'The Week column is missing. Run setupPhase4() once, then retry.' };
+      }
+    }
+
     // Same clock and format as the engine. Using the SPREADSHEET's timezone
     // means no new timezone is introduced by this script.
     var tz = SpreadsheetApp.openById(SHEET_ID).getSpreadsheetTimeZone();
     var stamp = Utilities.formatDate(new Date(), tz, 'd MMM yyyy, H:mm');
 
-    sh.appendRow([email, stage, stamp, text, 'MANUAL - ' + actor, cycle]);
+    // The 7th value is only appended when there is one, so rows written before
+    // setupPhase4() keep exactly the shape they have always had.
+    var row = [email, stage, stamp, text, 'MANUAL - ' + actor, cycle];
+    if (week) row.push(week);
+    sh.appendRow(row);
     SpreadsheetApp.flush();
 
-    return { ok: true, message: 'Appended.', row: sh.getLastRow(), stamp: stamp, timezone: tz };
+    return { ok: true, message: 'Appended.', row: sh.getLastRow(), stamp: stamp, timezone: tz, week: week || null };
   } finally {
     lock.releaseLock();
   }
@@ -360,11 +393,45 @@ function syncSettings() {
   return msg;
 }
 
+/**
+ * Run ONCE from the editor. Adds the "Week" header in G1 of the Event Log.
+ *
+ * Additive: columns A-F are untouched and existing rows keep a blank Week,
+ * which the fold reads as "no week assigned". Safe to run twice.
+ */
+function setupPhase4() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(EVENT_TAB);
+  if (!sh) throw new Error('Tab not found: ' + EVENT_TAB);
+
+  var head = sh.getRange(1, 1, 1, Math.max(7, sh.getLastColumn())).getValues()[0];
+  for (var i = 0; i < EXPECTED_HEAD.length; i++) {
+    if (String(head[i]).trim() !== EXPECTED_HEAD[i]) {
+      throw new Error('Refusing to modify: column ' + String.fromCharCode(65 + i) +
+        ' is "' + head[i] + '", expected "' + EXPECTED_HEAD[i] + '".');
+    }
+  }
+  if (String(head[5]).trim() !== CYCLE_HEADER) {
+    throw new Error('Column F is "' + head[5] + '", expected "' + CYCLE_HEADER + '". Run setupPhase1() first.');
+  }
+  if (String(head[6]).trim() === WEEK_HEADER) return 'Week column already present — left alone.';
+  if (String(head[6]).trim() !== '') {
+    throw new Error('Column G is not empty ("' + head[6] + '"). Resolve by hand before adding Week.');
+  }
+
+  sh.getRange(1, 7).setValue(WEEK_HEADER);
+  sh.setColumnWidth(7, 110);
+  var msg = 'Added the Week header in G1. ' + Math.max(0, sh.getLastRow() - 1) +
+            ' existing rows keep a blank Week, which reads as "no week assigned".';
+  Logger.log(msg);
+  return msg;
+}
+
 /** Read-only preflight — run this first to see what setupPhase1 would do. */
 function inspect() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sh = ss.getSheetByName(EVENT_TAB);
-  var head = sh.getRange(1, 1, 1, Math.max(6, sh.getLastColumn())).getValues()[0];
+  var head = sh.getRange(1, 1, 1, Math.max(7, sh.getLastColumn())).getValues()[0];
   var msg = [
     'Spreadsheet:  ' + ss.getName(),
     'Timezone:     ' + ss.getSpreadsheetTimeZone(),
@@ -373,6 +440,7 @@ function inspect() {
     'Header A–F:   ' + JSON.stringify(head.slice(0, 6)),
     'Data rows:    ' + Math.max(0, sh.getLastRow() - 1),
     'Cycle column: ' + (String(head[5]).trim() === CYCLE_HEADER ? 'present' : 'NOT present'),
+    'Week column:  ' + (String(head[6]).trim() === WEEK_HEADER ? 'present' : 'NOT present'),
     'Settings tab: ' + (ss.getSheetByName(SETTINGS_TAB) ? 'present' : 'NOT present')
   ].join('\n');
   Logger.log(msg);

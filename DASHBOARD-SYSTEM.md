@@ -1,7 +1,7 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-08**
-**Phase: 1–3 complete and live (Foundation · Pipeline board + client card · Action queue + alerts). The Slack digest is written but NOT wired. Phases 4–5 not built.**
+**Last updated: 2026-08-09**
+**Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts). The Slack digest is written but NOT wired. Phases 4–5 not built.**
 
 **Living document · Permanent source of truth · Internal use**
 Describes how the Testimonial Dashboard actually works: its architecture, every module, every rule, and the reasons behind them. This is not a one-off handover — it is the canonical reference, kept current with every change.
@@ -60,7 +60,8 @@ Columns A–E are written by the **live** collection engine. Never rename or reo
 | C | `Date and time` | ONE cell. Format `7 Aug 2026, 6:56` — 24-hour, **no seconds**. |
 | D | `Event` | Free text. **This is the "detail" field** the spec described; no separate column was added. |
 | E | `Source` | `AUTO` (engine) or `MANUAL - <Name>` (dashboard). |
-| F | `Cycle` | **Added by this build.** Blank on all pre-existing rows → folds to 1. |
+| F | `Cycle` | Added in Phase 1. Blank on all pre-existing rows → folds to 1. |
+| G | `Week` | **Added in Phase 4.** ISO Monday, e.g. `2026-08-17`. Blank = no week assigned. |
 
 ### 2.2 Roster tab (`A`–`J`)
 
@@ -446,6 +447,47 @@ SOP §3's upload cadence is **48h / 48h / 48h**, which matches v2's Flow 3 exact
 **Step 2 writes `Invite — instructions email sent`, which is what starts Flow 3.** The fan-out only shares the folder; this is the client actually being told what to do, so anchoring the 48h video check here avoids chasing someone who has not been asked yet. Before this existed nothing wrote that event, so Flow 3 could never start.
 
 `Flows.checkTemplates()` asserts no template contains an em dash, per v2.
+
+---
+
+## 10.8 Calendar + buffer (Phase 4)
+
+`#/calendar`. One data source, two shapes, a toggle: **Queue** (primary — what's next in order) and **Month** (secondary — the at-a-glance grid).
+
+**Scheduling is BY WEEK.** A testimonial occupies one week, keyed by its ISO Monday, and the model has no concept of a day. One testimonial per week, enforced on assignment. Weeks are only ever shown as *"week of Aug 17"*.
+
+**The week lives in column G**, not in the Event text. It is validated server-side as a real ISO Monday before any write. That matters because the buffer is the one computation duplicated in `Digest.gs` — it must read a clean structured value, not parse a token out of free text.
+
+### Two metrics, deliberately distinct (`dashboard/calendar.js`)
+
+| Flag | Meaning | Governs |
+|---|---|---|
+| `occupied` | a testimonial is assigned to this week, complete or not | assignment — stops two colliding |
+| `complete` | that testimonial has all five pieces done | **buffer health, and nothing else** |
+| `scheduledChecks` | **both** manual checks marked | at-risk clearing |
+| `atRisk` | `occupied && !(complete && scheduledChecks)` | display |
+
+**occupied-but-not-complete is the normal case** — a date gets proposed while production is still running.
+
+**Buffer** = consecutive `complete` weeks, starting at the first non-Published week ≥ this week. An at-risk or empty week **breaks the streak** rather than being skipped, so a later complete week does not count. Verified: weeks 0,1 complete → week 2 at-risk → week 4 complete gives a buffer of **2**, not 3.
+
+**The checks do not affect the buffer.** A week whose content is finished counts even if the scheduling clicks are still pending — but it stays at-risk until both are marked (rule 7).
+
+### The two scheduling checks
+
+**Instagram** covers reel + carousel + stories as **one** check. **Email** is the other. Independent, both required, markable days apart, both manual — the dashboard does not integrate with GoHighLevel or Instagram. Each writes its own event: `Schedule — post scheduled` and `Schedule — email scheduled`.
+
+### Proposals and fills
+
+**Proposals are computed as a batch**, in approval order, each getting a distinct week placed after the last occupied week. Nothing is written, so occupancy-on-proposal is achieved without an anonymous write — two testimonials can never be proposed the same week. Gaby accepts with one click, or picks another.
+
+**Moving inside Scheduled is a free move** — no blocking confirmation. It fires an active notice that the old week is now empty, offering the same fill suggestion. **`suggestFill()` is one function with two triggers**: `buffer-low` and `week-vacated`. Candidate order: a ready testimonial first, otherwise the oldest repost by last-used date, with the rest available in a dropdown.
+
+**Scheduled → Published stays a confirmed move.** Retiring the client-card stopgaps did not make it free.
+
+### Retired in Phase 4
+
+The client card's stopgap `Assign a week` / `Post scheduled` / `Email scheduled` / `Published` buttons are gone, along with the publish confirmation that guarded them. Verified no other module references those stages except `state-builder.js`, which only reads them for the ladder.
 
 ---
 

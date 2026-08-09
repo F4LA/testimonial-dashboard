@@ -367,19 +367,15 @@
     if (t.stage.key === "outreach" || t.stage.key === "nominated") {
       btns.push(['kickoff', 'Kickoff email sent', S.INVITE_KICKOFF]);
     }
-    if (t.approved && t.stage.key !== "scheduled" && t.stage.key !== "published") {
-      btns.push(['week', 'Assign a week', S.SCHEDULE_WEEK_ASSIGNED]);
-    }
-    if (t.stage.key === "scheduled") {
-      btns.push(['post', 'Post scheduled', S.SCHEDULE_POST]);
-      btns.push(['email', 'Email scheduled', S.SCHEDULE_EMAIL]);
-      btns.push(['publish', 'Published', S.PUBLISH_LIVE]);
-    }
+    // Scheduling and publishing moved to the Calendar view in Phase 4.
+    // They were stopgaps here so the pipeline was traversable end to end.
+
     if (!btns.length) return "";
 
     return '<section class="section">' +
       "<h3>Advance</h3>" +
-      '<p class="section__sub">Front-of-pipeline steps have no engine events — the dashboard is what creates them. Calendar placement gets its own view in Phase 4.</p>' +
+      '<p class="section__sub">Front-of-pipeline steps have no engine events, so the dashboard is what creates them. ' +
+      'Scheduling and publishing live in the <a href="#/calendar">Calendar</a>.</p>' +
       '<div class="actions">' +
         '<input type="text" id="advanceNote" placeholder="Optional detail">' +
         btns.map(function (b) {
@@ -525,25 +521,9 @@
         });
         return;
 
-      } else if (act === "advance" && btn.getAttribute("data-stage") === S.PUBLISH_LIVE) {
-        // CONFIRMATION: no reverse event exists anywhere in the vocabulary,
-        // so a wrong mark cannot be corrected, only annotated.
-        confirmThen(btn, say, {
-          title: "Mark published",
-          body: "This closes the production journey for " + (t.identity.clientName || t.email) + ".",
-          consequences: [
-            "The testimonial moves to Published and leaves the active work",
-            "There is no reverse event — this cannot be unmarked",
-            "They stay alive in Reviews, Raffle and Podcast, which are separate"
-          ],
-          tone: "danger",
-          confirmLabel: "Mark published",
-          input: { label: "Detail (optional)", placeholder: "e.g. posted 12 Aug, collab with @client" }
-        }, function (res) {
-          write(btn, say, S.PUBLISH_LIVE, res.value);
-        });
-        return;
-
+      // The Publish confirmation moved to the Calendar view with the button
+      // it guarded (Phase 4). Scheduled → Published is still a confirmed move
+      // there — retiring the stopgap did not make it free.
       } else if (act === "advance") {
         stage = btn.getAttribute("data-stage");
         text  = val("advanceNote") || "";

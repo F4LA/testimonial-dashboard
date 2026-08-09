@@ -195,7 +195,8 @@
       stage:  stage,
       event:  text,
       cycle:  cycle,
-      actor:  actor              // Apps Script writes Source as "MANUAL - <actor>"
+      actor:  actor,             // Apps Script writes Source as "MANUAL - <actor>"
+      week:   String((o && o.week) || "").trim()   // Phase 4 · column G, ISO Monday
     };
 
     var verify = (o.verify !== false);

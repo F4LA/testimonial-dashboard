@@ -154,7 +154,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 3,
+    EXPECTED_PROXY_VERSION: 4,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.
@@ -168,8 +168,8 @@
     /* ---------- Event Log columns (0-indexed) ----------
      * A–E are LIVE and written by the engine. Never rename or reorder.
      * F (Cycle) is the one additive column this build added. */
-    EVENT_COLS: { EMAIL: 0, STAGE: 1, DATE: 2, EVENT: 3, SOURCE: 4, CYCLE: 5 },
-    EVENT_HEADERS: ["Client email", "Stage", "Date and time", "Event", "Source", "Cycle"],
+    EVENT_COLS: { EMAIL: 0, STAGE: 1, DATE: 2, EVENT: 3, SOURCE: 4, CYCLE: 5, WEEK: 6 },
+    EVENT_HEADERS: ["Client email", "Stage", "Date and time", "Event", "Source", "Cycle", "Week"],
 
     /* ---------- Roster tab columns (0-indexed) ---------- */
     ROSTER_COLS: {

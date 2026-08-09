@@ -30,6 +30,7 @@
     if (h.indexOf("/client/") === 0) return { view: "client", key: decodeURIComponent(h.slice(8)) };
     if (h === "/foundation")         return { view: "foundation" };
     if (h === "/board")              return { view: "board" };
+    if (h === "/calendar")           return { view: "calendar" };
     // Spec §5: "the dashboard is the home — the action queue is always there
     // when someone opens it." An action engine opens on the work, not a board.
     return { view: "queue" };
@@ -137,6 +138,7 @@
       { href: "#/queue",      label: "Queue",      on: route.view === "queue",
         badge: alerts ? alerts.counts.total : 0, hot: over > 0 },
       { href: "#/board",      label: "Pipeline",   on: route.view === "board" || route.view === "client" },
+      { href: "#/calendar",   label: "Calendar",   on: route.view === "calendar" },
       { href: "#/foundation", label: "Foundation", on: route.view === "foundation" }
     ];
     return items.map(function (i) {
@@ -171,6 +173,9 @@
     } else if (route.view === "client") {
       host.innerHTML = root.ClientCard.render(state, route.key);
       root.ClientCard.wire(state, route.key);
+    } else if (route.view === "calendar") {
+      host.innerHTML = root.CalendarView.render(state);
+      root.CalendarView.wire(state);
     } else if (route.view === "foundation") {
       host.innerHTML = foundationView(state);
     } else {

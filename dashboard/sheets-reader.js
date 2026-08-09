@@ -90,6 +90,10 @@
         // since the column did not exist when they were written.
         cycle:      (isFinite(cycle) && cycle > 0) ? cycle : CFG.DEFAULT_CYCLE,
         cycleBlank: rawCycle === "",
+        // Phase 4 · column G. Structured on purpose: the buffer is the one
+        // computation duplicated in Digest.gs, so it must not depend on
+        // parsing a token out of free text.
+        week:       cell(r, C.WEEK),
         rowNumber:  i + 1
       });
     }
