@@ -26,6 +26,14 @@
 
   /* ---------- Buffer strip ---------- */
 
+  /**
+   * The strip has to answer "what do I do about it", not just "what is it".
+   *
+   * A single at-risk week can dam several ready weeks behind it. Reporting
+   * only "buffer 2, stopped at Aug 17" reads as "go produce more content"
+   * when the real fix is "unblock one week" — the opposite action. So when
+   * something is stuck behind the gap, the strip leads with that.
+   */
   function bufferStrip(cal) {
     var b = cal.buffer;
     var cls = b.healthy ? "ok" : (b.weeks <= b.target - 2 ? "bad" : "warn");
@@ -33,22 +41,60 @@
     for (var i = 0; i < Math.max(b.target, b.weeks); i++) {
       pips += '<span class="pip ' + (i < b.weeks ? "pip--on" : "pip--off") + '"></span>';
     }
+
+    var note, action = "";
+
+    if (b.healthy) {
+      note = "Healthy. Counting from " + esc(root.CalendarFold.label(b.startWeek)) + ".";
+
+    } else if (b.blockedBy) {
+      // The important case: one week is blocking, and content may be dammed.
+      var m = b.blockedBy.missing;
+      var missingText = m.length === 1 ? m[0].toLowerCase()
+                      : m.slice(0, -1).join(", ").toLowerCase() + " and " + m[m.length - 1].toLowerCase();
+      note =
+        "<strong>" + esc(root.CalendarFold.label(b.firstGapWeek)) + " is blocking the queue.</strong> " +
+        esc(b.blockedBy.name) + " is at " + b.blockedBy.piecesDone + "/" + CFG.PIECES.length +
+        " — still needs the " + esc(missingText) + ".";
+      if (b.behindGap.length) {
+        note += " <strong>" + b.behindGap.length + " ready week" +
+          (b.behindGap.length === 1 ? " is" : "s are") + " waiting behind it</strong> (" +
+          b.behindGap.map(function (x) { return esc(x.name); }).join(", ") +
+          "), so the fix is to finish that one piece set, not to produce more. " +
+          "Unblocking it takes the buffer to " + b.wouldBe + ".";
+      } else {
+        note += " Unblocking it takes the buffer to " + b.wouldBe + ".";
+      }
+      action = '<a class="btn btn--sm" href="#/client/' +
+        encodeURIComponent(cal.byWeek[b.firstGapWeek].testimonial.key) + '">Open ' +
+        esc(b.blockedBy.name) + "</a>";
+
+    } else if (b.behindGap.length) {
+      // The gap is an empty week with ready content behind it.
+      note = "<strong>" + esc(root.CalendarFold.label(b.firstGapWeek)) + " is empty</strong>, and " +
+        b.behindGap.length + " ready week" +
+        (b.behindGap.length === 1 ? " sits" : "s sit") +
+        " behind it (" + b.behindGap.map(function (x) { return esc(x.name); }).join(", ") +
+        "). Filling or moving one forward takes the buffer to " + b.wouldBe + ".";
+      action = '<button class="btn btn--sm" data-cal="fill" data-week="' + esc(b.firstGapWeek) +
+        '" data-trigger="buffer-low">Suggest a fill</button>';
+
+    } else {
+      // Genuinely short of content.
+      note = "Below target and nothing is queued behind " +
+        esc(root.CalendarFold.label(b.firstGapWeek)) + ". This one needs new content.";
+      action = '<button class="btn btn--sm" data-cal="fill" data-week="' + esc(b.firstGapWeek) +
+        '" data-trigger="buffer-low">Suggest a fill</button>';
+    }
+
     return '<div class="buffer buffer--' + cls + '">' +
       '<div class="buffer__n">' + b.weeks + "</div>" +
       '<div class="buffer__body">' +
         '<div class="buffer__label">complete week' + (b.weeks === 1 ? "" : "s") +
           " ahead · target " + b.target + "</div>" +
         '<div class="buffer__pips">' + pips + "</div>" +
-        '<div class="buffer__note">' +
-          (b.healthy
-            ? "Healthy. Counting from " + esc(root.CalendarFold.label(b.startWeek)) + "."
-            : "Below target. The streak stops at " + esc(root.CalendarFold.label(b.firstGapWeek)) +
-              " because that week is " + esc(b.firstGapReason) + ".") +
-        "</div>" +
-      "</div>" +
-      (b.healthy ? "" :
-        '<button class="btn btn--sm" data-cal="fill" data-week="' + esc(b.firstGapWeek) +
-        '" data-trigger="buffer-low">Suggest a fill</button>') +
+        '<div class="buffer__note">' + note + "</div>" +
+      "</div>" + action +
       "</div>";
   }
 

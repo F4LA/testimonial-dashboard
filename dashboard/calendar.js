@@ -172,13 +172,57 @@
       cursor = addWeeks(cursor, 1);
     }
 
+    /* --- What the number alone does NOT say ---
+       A single at-risk week can dam several ready weeks behind it. The number
+       is right (the streak breaks, it does not skip), but "buffer 2, stopped
+       at Aug 17" reads as "go produce more content" when the actual fix is
+       "unblock one week". So the fold also reports what is stuck behind the
+       gap, what is blocking it, and what unblocking it would be worth. This
+       changes no arithmetic — `weeks` is untouched. --- */
+    var gapWeek = cursor;
+    var gap = byWeek[gapWeek] || null;
+
+    var blockedBy = null;
+    if (gap && !gap.complete) {
+      var missing = CFG.PIECES
+        .filter(function (p) { return !gap.testimonial.pieces[p.key].done; })
+        .map(function (p) { return p.label; });
+      blockedBy = { name: gap.name, piecesDone: gap.piecesDone, missing: missing };
+    }
+
+    // Complete weeks sitting BEHIND the gap — ready content nobody can count.
+    var behind = [];
+    var scan = addWeeks(gapWeek, 1);
+    var g2 = 0;
+    var lastKey = Object.keys(byWeek).sort().reverse()[0] || gapWeek;
+    while (scan <= lastKey && g2++ < 260) {
+      if (byWeek[scan] && byWeek[scan].complete && !byWeek[scan].published) {
+        behind.push({ week: scan, label: label(scan), name: byWeek[scan].name });
+      }
+      scan = addWeeks(scan, 1);
+    }
+
+    // What the buffer becomes if the gap alone is resolved: the streak runs
+    // through it and picks up whatever is immediately contiguous behind.
+    // Computed for BOTH kinds of gap — an at-risk week that gets finished and
+    // an empty week that gets filled both unblock the same streak.
+    var wouldBe = count + 1;
+    var w2 = addWeeks(gapWeek, 1), g3 = 0;
+    while (byWeek[w2] && byWeek[w2].complete && g3++ < 260) { wouldBe++; w2 = addWeeks(w2, 1); }
+
     var buffer = {
       weeks: count,
       target: target,
       healthy: count >= target,
       startWeek: bufferStart,
-      firstGapWeek: cursor,
-      firstGapReason: byWeek[cursor] ? "at-risk" : "empty"
+      firstGapWeek: gapWeek,
+      firstGapReason: gap ? "at-risk" : "empty",
+      // communication, not arithmetic
+      blockedBy: blockedBy,
+      behindGap: behind,
+      wouldBe: wouldBe,
+      // the honest headline: unblock one week, or genuinely produce more
+      fix: gap ? "unblock" : (behind.length ? "fill-or-move" : "produce")
     };
 
     /* --- Proposals, computed as a BATCH so two can never collide (rule 5).

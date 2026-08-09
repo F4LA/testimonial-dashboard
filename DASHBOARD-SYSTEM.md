@@ -471,6 +471,21 @@ SOP §3's upload cadence is **48h / 48h / 48h**, which matches v2's Flow 3 exact
 
 **Buffer** = consecutive `complete` weeks, starting at the first non-Published week ≥ this week. An at-risk or empty week **breaks the streak** rather than being skipped, so a later complete week does not count. Verified: weeks 0,1 complete → week 2 at-risk → week 4 complete gives a buffer of **2**, not 3.
 
+### The strip answers "what do I do", not just "what is it"
+
+The number alone misdirects. A single at-risk week can dam several ready weeks behind it, and *"buffer 2, stopped at Aug 17"* reads as **go produce more content** when the actual fix is **unblock one week** — the opposite action, and the expensive one.
+
+So the fold also reports `blockedBy`, `behindGap`, `wouldBe` and `fix`, and the strip leads with them. **None of this changes the arithmetic** — `buffer.weeks` is untouched.
+
+| Situation | What the strip says |
+|---|---|
+| At-risk gap, content behind | *"Week of Aug 17 is blocking the queue. Karen Nosek is at 3/5, still needs the case study + landing page and weekly email. **2 ready weeks are waiting behind it** (Amy Lang, Tammera Hood), so the fix is to finish that one piece set, not to produce more. Unblocking it takes the buffer to 5."* → **Open Karen Nosek** |
+| At-risk gap, nothing behind | Same, minus the dammed-content clause. Unblocking takes it to 3. |
+| Empty gap, content behind | *"Week of Aug 17 is empty, and 1 ready week sits behind it (Karen Nosek). Filling or moving one forward takes the buffer to 3."* → **Suggest a fill** |
+| Genuinely short | *"Below target and nothing is queued behind week of Aug 10. This one needs new content."* → **Suggest a fill** |
+
+Only the last case should send anyone to produce. `wouldBe` is computed for **both** kinds of gap: finishing an at-risk week and filling an empty one unblock the same streak.
+
 **The checks do not affect the buffer.** A week whose content is finished counts even if the scheduling clicks are still pending — but it stays at-risk until both are marked (rule 7).
 
 ### The two scheduling checks
