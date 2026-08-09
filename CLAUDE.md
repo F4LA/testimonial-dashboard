@@ -37,6 +37,24 @@ Any change to the dashboard — frontend (`index.html`, `app.js`, `styles.css`, 
 7. **Do not read a legacy sheet column as if it were a live process.** Validate against the spec and the real event log. This risk is registered in the spec (§6) and has already bitten once.
 8. **Thresholds live in the Settings tab, not in code.** `SETTINGS_DEFAULTS` in `config.js` is only a fallback for missing keys.
 
+## ⚠️ Two sources of truth — change BOTH
+
+`apps-script/Digest.gs` re-implements the fold and the alert rules, because a
+time trigger has no browser and cannot load `dashboard/state-builder.js`.
+
+**Any change to the fold, the stage ladder, the input classifiers, the
+Collecting gate, or the alert rules MUST be made in both places:**
+
+| Rule | Frontend | Apps Script |
+|---|---|---|
+| fold, ladder, classifiers | `dashboard/state-builder.js` | `apps-script/Digest.gs` |
+| Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
+| task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` |
+| Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |
+
+`Digest.gs` `selfCheck()` prints its stage counts and task total so drift is
+detectable rather than silent. Run it after any such change.
+
 ## Build phases
 
 1. **Foundation** ✅ — repo, Pages, governance docs, read path, write path, Settings tab, identity resolution, the event-log fold.

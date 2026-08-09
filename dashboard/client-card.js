@@ -278,6 +278,46 @@
       "</div></section>";
   }
 
+  /* ---------- Kickoff: the fan-out fire step ---------- */
+
+  /**
+   * Has the fan-out already run for this (email, cycle)?
+   * Any of the five fan-out strings proves it did.
+   */
+  function fanoutAlreadyRan(t) {
+    var norm = root.StateBuilder.normStage;
+    return CFG.ENGINE_FANOUT.some(function (s) { return !!t.lastByStage[norm(s)]; });
+  }
+
+  function kickoffBlock(t) {
+    if (t.stage.terminal) return "";
+    var norm = root.StateBuilder.normStage;
+    var kickoffSent = !!t.lastByStage[norm(S.INVITE_KICKOFF)];
+    var ran = fanoutAlreadyRan(t);
+
+    if (ran || kickoffSent) {
+      return '<section class="section">' +
+        "<h3>Kickoff</h3>" +
+        '<p class="section__sub">' +
+          (ran ? "The fan-out has already run for this cycle — the folder exists, folder 03 is shared, and the coach was notified."
+               : "The kickoff is marked sent; the fan-out has not written its events yet.") +
+        "</p>" +
+        '<span class="badge badge--ok">fan-out done</span>' +
+        "</section>";
+    }
+
+    var coach = t.identity.coach || "the coach";
+    return '<section class="section section--danger">' +
+      "<h3>Kickoff — fire the automation</h3>" +
+      '<p class="section__sub">The client said yes. This is the step that moves them to Invited and starts the collection. ' +
+      "It is deliberately a button and not a side effect of moving the card, because it reaches outside the team.</p>" +
+      '<div class="actions">' +
+        '<button class="btn btn--danger" data-act="fire-fanout">Fire the kickoff fan-out</button>' +
+        '<span class="sub">Coach: ' + esc(coach) + "</span>" +
+      "</div>" +
+      "</section>";
+  }
+
   /* ---------- Stage advance (no calendar UI — Phase 4 adds that) ---------- */
 
   function advanceBlock(t) {
@@ -323,7 +363,7 @@
       return '<section class="section"><a class="backlink" href="#/board">← Board</a>' +
              "<h2>Not found</h2><p class='sub'>No testimonial for <code>" + esc(key) + "</code>.</p></section>";
     }
-    return header(t) + inputsBlock(t) + piecesBlock(t) + advanceBlock(t) +
+    return header(t) + kickoffBlock(t) + inputsBlock(t) + piecesBlock(t) + advanceBlock(t) +
            timeline(t) + recognitions(t) + terminalBlock(t) +
            '<div id="cardResult" class="result"></div>';
   }
@@ -406,10 +446,47 @@
         if (!text) { say("Write the note first.", "bad"); return; }
         stage = S.NOTE;
 
+      } else if (act === "fire-fanout") {
+        fireFanout(t, btn, say);
+        return;
+
       } else if (act === "declined" || act === "dropped") {
-        text = val("closeNote");
-        if (!text) { say("A note explaining what happened is required.", "bad"); return; }
-        stage = (act === "declined") ? S.PIPELINE_DECLINED : S.PIPELINE_DROPPED;
+        // CONFIRMATION: leaves the active board and there is no reopen event
+        // in the vocabulary — a re-nomination opens a new cycle instead.
+        confirmThen(btn, say, {
+          title: (act === "declined" ? "Mark declined" : "Mark dropped"),
+          body: (t.identity.clientName || t.email) + " leaves the active pipeline. This cannot be undone.",
+          consequences: [
+            "They disappear from the active board",
+            "Their history is kept, so the outcome stays as data",
+            "Bringing them back later means a re-nomination, which opens cycle " + (t.cycle + 1)
+          ],
+          tone: "danger",
+          confirmLabel: (act === "declined" ? "Mark declined" : "Mark dropped"),
+          input: { label: "What happened? (required)", placeholder: "e.g. said no, wants to wait until next month", required: true }
+        }, function (res) {
+          write(btn, say, (act === "declined") ? S.PIPELINE_DECLINED : S.PIPELINE_DROPPED, res.value);
+        });
+        return;
+
+      } else if (act === "advance" && btn.getAttribute("data-stage") === S.PUBLISH_LIVE) {
+        // CONFIRMATION: no reverse event exists anywhere in the vocabulary,
+        // so a wrong mark cannot be corrected, only annotated.
+        confirmThen(btn, say, {
+          title: "Mark published",
+          body: "This closes the production journey for " + (t.identity.clientName || t.email) + ".",
+          consequences: [
+            "The testimonial moves to Published and leaves the active work",
+            "There is no reverse event — this cannot be unmarked",
+            "They stay alive in Reviews, Raffle and Podcast, which are separate"
+          ],
+          tone: "danger",
+          confirmLabel: "Mark published",
+          input: { label: "Detail (optional)", placeholder: "e.g. posted 12 Aug, collab with @client" }
+        }, function (res) {
+          write(btn, say, S.PUBLISH_LIVE, res.value);
+        });
+        return;
 
       } else if (act === "advance") {
         stage = btn.getAttribute("data-stage");
@@ -419,9 +496,17 @@
         return;
       }
 
+      write(btn, say, stage, text);
+    });
+
+    /* --- shared helpers --- */
+
+    function write(btn, say, stage, text) {
+      var t = ctx.state && ctx.state.byKey[ctx.key];
+      if (!t) return;
       btn.disabled = true;
       say("Writing…", "");
-      root.EventWriter.appendEvent({ email: t.email, stage: stage, event: text, cycle: t.cycle })
+      root.EventWriter.appendEvent({ email: t.email, stage: stage, event: text || "", cycle: t.cycle })
         .then(function (res) {
           say(res.message, res.verified ? "ok" : "warn");
           btn.disabled = false;
@@ -431,7 +516,68 @@
           say(err.message, "bad");
           btn.disabled = false;
         });
-    });
+    }
+
+    function confirmThen(btn, say, opts, done) {
+      root.Dialog.confirm(opts).then(function (res) {
+        if (!res) { say("Cancelled — nothing was written.", ""); return; }
+        done(res);
+      });
+    }
+
+    /**
+     * The one action that reaches outside the team.
+     *
+     * Order matters: queue the fan-out FIRST, and only write
+     * `Invite — kickoff sent` once it is queued. If the kickoff event were
+     * written first and the queue failed, the card would claim Invited with
+     * nothing behind it. This way, if the kickoff write fails afterwards, the
+     * engine's own fan-out rows still arrive and the Invited inference picks
+     * the stage up anyway.
+     */
+    function fireFanout(t, btn, say) {
+      var name = t.identity.clientName;
+      if (!t.identity.resolved || !name) {
+        say("This client does not resolve in the roster, so the engine could not match them. Resolve the identity first.", "bad");
+        return;
+      }
+      var coach = t.identity.coach || "the coach";
+
+      root.Dialog.confirm({
+        title: "Fire the kickoff fan-out for " + name + "?",
+        body: "This runs the collection engine. It reaches outside the team and cannot be undone.",
+        consequences: [
+          "Creates their Drive folder from the template",
+          "Shares folder 03 as anyone-with-the-link, Editor — so they can upload without signing in",
+          "Sends a Slack DM to " + coach + " asking for the coach form",
+          "Copies any matching Meet notes and Looms into the folder"
+        ],
+        tone: "danger",
+        confirmLabel: "Yes, fire it"
+      }).then(function (ok) {
+        if (!ok) { say("Cancelled — nothing was queued.", ""); return; }
+
+        btn.disabled = true;
+        say("Queueing the fan-out…", "");
+        root.EventWriter.requestFanout(name)
+          .then(function (res) {
+            if (!res.ok) { say(res.message, "bad"); btn.disabled = false; return; }
+            say(res.message + " Recording the kickoff…", "ok");
+            return root.EventWriter.appendEvent({
+              email: t.email, stage: S.INVITE_KICKOFF,
+              event: "Kickoff sent and fan-out queued from the dashboard", cycle: t.cycle
+            }).then(function (r2) {
+              say(res.message + "  " + r2.message, r2.verified ? "ok" : "warn");
+              btn.disabled = false;
+              if (root.TDApp) root.TDApp.reload();
+            });
+          })
+          .catch(function (err) {
+            say(err.message + "  Fallback: Gaby can still tick the checkbox in the Signal sheet.", "bad");
+            btn.disabled = false;
+          });
+      });
+    }
   }
 
   root.ClientCard = { render: render, wire: wire, fmtWhen: fmtWhen, collectionLock: collectionLock };

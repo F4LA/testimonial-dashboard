@@ -289,12 +289,14 @@ dashboard/
 ├── event-writer.js     ← the only write path + write-then-verify
 ├── pipeline-board.js   ← the board: one card per testimonial, by stage
 ├── client-card.js      ← the five blocks + every action
+├── dialog.js           ← the confirmation dialog (3 moves only — see §10.6)
 ├── alerts.js           ← THE RULES: state → owned, thresholded tasks
 ├── queue-view.js       ← the per-person action queue
 └── renderer.js         ← shell, nav, actor picker, routing, foundation view
 apps-script/
 ├── Code.gs             ← Web App proxy + one-time setupPhase1()
 ├── Digest.gs           ← daily per-owner Slack digest (NOT wired)
+├── engine-signal-poll.gs                  ← NOT ours; the fan-out bridge
 ├── engine-fix-logEvent.gs                 ← NOT ours; a repair for the engine
 └── engine-one-time-coach-form-trigger.gs  ← NOT ours; a repair for the engine
 context/                ← build spec + data reference (inputs, not runtime)
@@ -401,6 +403,49 @@ A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. I
 
 ---
 
+## 10.6 Stage moves: what blocks, what confirms, what flows
+
+Three distinct mechanisms. Confusing them is how a system either nags people into clicking through warnings, or lets a destructive action happen by accident.
+
+| Move | Mechanism |
+|---|---|
+| *(new)* → Nominated | flows |
+| Nominated → Outreach | flows |
+| Outreach → **Invited** | 🔴 **confirm** — fires the fan-out |
+| Invited → Collecting | flows |
+| Collecting → **Producing** | 🔒 **hard block** — see §4.6 |
+| Producing → Review | *automatic* — computed when all five pieces have links |
+| Review → approved | flows (send-back requires feedback: validation, not a confirm) |
+| approved → Scheduled | flows |
+| Scheduled → **Published** | 🔴 **confirm** |
+| any → **Declined / Dropped** | 🔴 **confirm** + required note |
+
+**Hard block ≠ confirmation.** A hard block is a disabled control that names what is missing — you cannot proceed. A confirmation is a move you *can* make, shown with its consequences first.
+
+**Three confirmations across the whole pipeline, on purpose.** A dialog that appears on every action stops being read, and then it protects nothing. Confirmations are reserved for moves that are outward-facing or that cannot be reversed.
+
+- **Invited** — creates the Drive folder, shares folder 03 anyone-with-link-Editor, DMs a real coach.
+- **Declined / Dropped** — leaves the active board; there is no reopen event, so returning means a re-nomination into the next cycle.
+- **Published** — closes the production journey, and see below.
+
+**⚠️ There is no reverse event anywhere in the vocabulary.** The ladder is forward-only by design — append-only log, monotonic stage. A mis-marked step cannot be unmarked, only annotated with a note. That is why Published confirms despite not being outward-facing. If corrections are ever needed, a `Pipeline — correction` event that voids a prior one would be the shape, and it is a fold change.
+
+### Drag-and-drop
+
+Not built. Every move today is a labelled button on the client card. Drag is planned as an **enhancement after launch**: it replaces the button as the way to *initiate* a move and lands on the same confirmation and block layer, unchanged. Sequenced deliberately — the functional base ships first, drag follows.
+
+---
+
+## 10.7 Opening a card: manual entry into Nominated
+
+Testimonials are derived purely from event-log groups, so before this existed a client with no events had no card at all — and the "Log nomination" button lived *on* the card. Every client on the board had arrived via an engine fan-out.
+
+**+ Add client to Nominated** on the board picks from the **Active Client Roster** — a dropdown, never free text, because identity is the master key and is never guessed. It writes `Nomination — logged`, which is what brings the card into existence.
+
+**Cycle rule:** cycle 1 normally; `max(cycle) + 1` if the client has prior testimonials; **refused while any prior cycle is still active**, since one client cannot have two live testimonials. Clients with a live testimonial are filtered out of the dropdown entirely.
+
+---
+
 ## 11. The collection engine — what is live, and what is dead code
 
 The engine is a container-bound Apps Script on the Signal & Event Log spreadsheet. A working copy of its source is at `~/Downloads/collection-engine.gs.txt`. **Reading that source is not enough to know what runs** — several handlers are only wired up conditionally, and one is deliberately dead. Check the Triggers list, not just the code.
@@ -454,6 +499,31 @@ Fixed 2026-08-07 by resolving the log by id via a new `SIGNAL_SHEET_ID` Script P
 ### ⚠️ Open launch gap: the coach form trigger
 
 As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. **`onCoachFormSubmit` is absent.** Unlike the video handler, this one was never abandoned — the coach form is one of the five collected inputs and the fan-out DMs each coach a link to it. Without the trigger, coach responses at launch are silently lost: nothing routes them to folder 04 and no event is written. Repair steps live in `apps-script/engine-one-time-coach-form-trigger.gs`. This is a launch issue independent of the dashboard.
+
+---
+
+## 11.5 The fan-out bridge — how the dashboard fires the engine
+
+Moving a client to Invited fires the collection engine's fan-out, so Gaby never touches the Signal sheet.
+
+**The obvious route does not work.** Having the dashboard tick the Confirmed checkbox cannot fire `onSignalEdit`: **Apps Script onEdit triggers fire only for edits made by a human in the UI, never for edits made by a script or by the Sheets API.** The box would go green and nothing would run.
+
+**How it actually works:**
+
+1. The card's explicit **fire step** (never a drag, never a side effect) shows a confirmation naming the consequences, then calls the proxy's `requestFanout`.
+2. The proxy writes what a human tick writes — roster name in column A, **boolean** `true` in column B, `Processed` left empty — into the **first empty pre-made row (13–30)**. Never appended: an appended row holds a text `"TRUE"` that the engine's `confirmed !== true` check rejects, and Gaby could not use it as the manual fallback.
+3. The engine's `processPendingSignals` poll (every minute, `apps-script/engine-signal-poll.gs`) picks it up and runs the same `fanOut_` the checkbox does.
+4. The dashboard then writes `Invite — kickoff sent`.
+
+**Order matters:** the fan-out is queued *first*. If the kickoff event were written first and queueing failed, the card would claim Invited with nothing behind it. This way a failed kickoff write is self-healing — the engine's own fan-out rows arrive and the Invited inference picks the stage up regardless.
+
+**Chosen over a Web App endpoint on the engine** because it adds no public endpoint to a live script, and the rollback is free: delete the poll trigger (`removeSignalPollTrigger()`) and Gaby ticks the checkbox exactly as before, with no code change.
+
+**Double-fire protection, three independent layers:**
+
+1. **Dashboard** — the fire step only renders when no fan-out event and no `Invite — kickoff sent` exists for that (email, cycle).
+2. **Proxy** — refuses if a row for that client is already pending, or was already processed this calendar month.
+3. **Engine** — the pre-existing `Processed` guard, claimed *before* the work runs, under the same script lock the checkbox path takes so the poll and a manual tick cannot race.
 
 ---
 

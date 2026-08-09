@@ -411,6 +411,7 @@
       systemEvents: systemEvents,
       systemFlags:  systemFlags,
       identity:     idx,
+      roster:       data.roster,
       settings:     data.settings,
       settingsTabExists: data.settingsTabExists,
       eventHeaders: data.eventHeaders,

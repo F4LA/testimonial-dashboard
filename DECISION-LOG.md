@@ -7,6 +7,58 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-08 — Fan-out bridge, manual entry into Nominated, and the move taxonomy
+
+Item 1 of the v2 redesign. The task-engine rebuild (item 2) has not started; Phase 4 stays untouched.
+
+### The dashboard fires the fan-out — but not the way it was proposed
+
+The plan was for the dashboard to tick the Signal checkbox. **That cannot work:** Apps Script `onEdit` triggers fire only for edits made by a human in the UI, never for edits made by a script or by the Sheets API. The checkbox would turn green and nothing would run — a silent no-op, which is exactly the failure mode that already cost a day with `logEvent_`.
+
+**Option C, chosen.** The proxy writes what a human tick writes (roster name in A, boolean `true` in B, `Processed` empty) into the **first empty pre-made row 13–30**, and a new one-minute poll on the engine picks it up. Never appended: an appended row holds a text `"TRUE"` that the engine's `confirmed !== true` check rejects, and Gaby could not use it as the manual fallback.
+
+Rejected **Option B** (a `doPost` endpoint on the engine) despite its synchronous result: it would add a public endpoint to a live script two days before launch. Option C is purely additive — `onSignalEdit` and `fanOut_` are untouched — and its rollback is free: delete one trigger and the checkbox path is exactly as it was.
+
+**Order of operations:** queue the fan-out first, write `Invite — kickoff sent` second. The reverse would let the card claim Invited with nothing behind it. This way a failed kickoff write is self-healing — the engine's fan-out rows arrive and the Invited inference recovers the stage.
+
+**Three double-fire layers:** the fire step only renders when neither a fan-out event nor a kickoff event exists for that (email, cycle); the proxy refuses if a row is already pending or was processed this month; the engine's pre-existing `Processed` guard claims before working, under the same lock the checkbox takes.
+
+### Move taxonomy: block ≠ confirm ≠ flow
+
+**Confirmations only on outward-facing or irreversible moves — three in the whole pipeline.** A dialog that appears on every action stops being read, and then it protects nothing.
+
+- 🔴 **Invited** — creates the folder, shares folder 03 anyone-with-link-Editor, DMs a real coach
+- 🔴 **Declined / Dropped** — leaves the board, note required, no reopen event exists
+- 🔴 **Published** — see the reversibility note below
+- 🔒 **Collecting → Producing** stays a **hard block**, not a confirmation: a disabled control naming what is missing
+- everything else flows
+
+**Firing is a button, never a drag or a card-move side effect.** v2 said moving the card triggers the automation; it reaches outside the team, so it gets an explicit confirmed step. Gaby still never touches the sheet, which is the actual goal.
+
+**⚠️ Registered: there is no reverse event anywhere in the vocabulary.** The ladder is forward-only by design, so a mis-marked step cannot be unmarked, only annotated. That is why Published confirms despite not being outward-facing. A `Pipeline — correction` event would be the shape if corrections are ever wanted; it is a fold change and is not in v2.
+
+**Drag-and-drop is approved but deliberately sequenced after launch.** It replaces the button as the way to *initiate* a move and lands on the same confirmation and block layer, unchanged. Functional base for the 10th; drag as the enhancement.
+
+### Manual entry into Nominated did not exist
+
+Testimonials are derived purely from event-log groups, so a client with no events had no card — and the "Log nomination" button lived *on* the card. Every client on the board had arrived via an engine fan-out. **+ Add client to Nominated** picks from the roster (a dropdown, never free text — identity is never guessed) and writes `Nomination — logged`.
+
+**Cycle rule:** cycle 1 normally, `max(cycle) + 1` for a re-nomination, **refused while a prior cycle is still active** — one client cannot have two live testimonials. Clients with a live testimonial are filtered out of the dropdown.
+
+This was also a prerequisite for testing the bridge: without it there is no fresh client to walk Nominated → Outreach → Invited, and the seven existing clients have all already been fanned out.
+
+### Carried from v2
+
+**Sofi is out of `PEOPLE`** — v2's dashboard users are Gaby, Miguel, Joey, Bernardo. Applied in `config.js`, `Code.gs` and `Digest.gs`. **The reel moves in-house to Miguel**, reverting that part of D-071/D-072.
+
+### Verified before pushing
+
+Roster dropdown offers 126 clients and excludes everyone with a live testimonial · the fire step renders only when no fan-out has run · Declined opens a confirmation, refuses an empty note, and writes nothing on cancel · an ordinary move (Note) opens no dialog and writes directly · the Collecting gate stays a disabled button reading "Waiting on: Everfit data, photos" · `nextCycleFor` refuses an active client and returns cycle 1 for a new one.
+
+**Files / commits:** `dashboard/{dialog,pipeline-board,client-card,event-writer,state-builder,config,renderer}.js` · `apps-script/{Code,Digest,engine-signal-poll}.gs` · `index.html` · `styles.css`
+
+---
+
 ## 2026-08-07 — Phase 3: action queue + alerts
 
 **Built:** `dashboard/alerts.js` (the rules), `dashboard/queue-view.js` (the per-person queue), `apps-script/Digest.gs` (the daily Slack digest — written, **not wired**).

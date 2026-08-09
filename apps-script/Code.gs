@@ -28,7 +28,7 @@ var CYCLE_HEADER  = 'Cycle';
 
 /** People allowed to act. Mirrors TDConfig.PEOPLE — validated server-side
  *  too, so a bad client can never write an unattributed row. */
-var PEOPLE = ['Joey', 'Miguel', 'Gaby', 'Bernardo', 'Sofi'];
+var PEOPLE = ['Gaby', 'Miguel', 'Joey', 'Bernardo'];
 
 /** The approved dashboard Stage vocabulary. All NINE engine strings are
  *  deliberately absent — including the two form-driven ones (Collection —

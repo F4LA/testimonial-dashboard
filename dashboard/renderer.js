@@ -174,12 +174,8 @@
     } else if (route.view === "foundation") {
       host.innerHTML = foundationView(state);
     } else {
-      host.innerHTML = root.PipelineBoard.render(state, boardOpts);
-      var cf = el("coachFilter");
-      if (cf) cf.addEventListener("change", function () {
-        boardOpts.coach = cf.value;
-        render(state);
-      });
+      host.innerHTML = root.PipelineBoard.render(state, root.PipelineBoard._opts);
+      root.PipelineBoard.wire(state);
     }
 
     var sel = el("actor");

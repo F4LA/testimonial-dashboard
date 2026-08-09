@@ -47,10 +47,9 @@ var DIGEST = {
   // notifyCoach_ does. Coaches are resolved from the roster's column J.
   PEOPLE_SLACK: {
     Gaby:     '',      // ← required, she owns most of the queue
-    Joey:     '',      // ← required, approvals
-    Miguel:   '',
-    Bernardo: '',
-    Sofi:     ''
+    Miguel:   '',      // ← required, content
+    Joey:     '',      // ← required, approvals (temporary stage, 3-4 months)
+    Bernardo: ''       // ← escalations only
   },
 
   // The existing testimonial-management channel. Production items surface
@@ -95,7 +94,7 @@ var D_S = {
 var D_PIECES = [
   { key: 'carousel',    label: 'Carousel',                  owner: 'Agent',  stage: 'Production — carousel' },
   { key: 'story',       label: 'Story',                     owner: 'Agent',  stage: 'Production — story' },
-  { key: 'reel',        label: 'Reel',                      owner: 'Agency', stage: 'Production — reel' },
+  { key: 'reel',        label: 'Reel',                      owner: 'Miguel', stage: 'Production — reel' },
   { key: 'caseStudy',   label: 'Case study + landing page', owner: 'Miguel', stage: 'Production — case study' },
   { key: 'weeklyEmail', label: 'Weekly email',              owner: 'Miguel', stage: 'Production — weekly email' }
 ];

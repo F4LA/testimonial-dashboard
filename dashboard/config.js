@@ -161,7 +161,7 @@
     SIGNAL_COLS: { CLIENT_NAME: 0, CONFIRMED: 1, PROCESSED: 2, RESULT: 3, VIDEO_LINK: 4 },
 
     /* ---------- People who can act ---------- */
-    PEOPLE: ["Joey", "Miguel", "Gaby", "Bernardo", "Sofi"],
+    PEOPLE: ["Gaby", "Miguel", "Joey", "Bernardo"],
     ACTOR_STORAGE_KEY: "td.actor",
 
     ENGINE: ENGINE,
@@ -222,7 +222,7 @@
     PIECES: [
       { key: "carousel",    label: "Carousel",                  owner: "Agent",  stage: STAGES.PRODUCTION_CAROUSEL },
       { key: "story",       label: "Story",                     owner: "Agent",  stage: STAGES.PRODUCTION_STORY },
-      { key: "reel",        label: "Reel",                      owner: "Agency", stage: STAGES.PRODUCTION_REEL },
+      { key: "reel",        label: "Reel",                      owner: "Miguel", stage: STAGES.PRODUCTION_REEL },
       { key: "caseStudy",   label: "Case study + landing page", owner: "Miguel", stage: STAGES.PRODUCTION_CASE_STUDY },
       { key: "weeklyEmail", label: "Weekly email",              owner: "Miguel", stage: STAGES.PRODUCTION_WEEKLY_EMAIL }
     ],

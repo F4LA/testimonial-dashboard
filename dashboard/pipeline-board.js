@@ -128,11 +128,110 @@
     ).join("");
 
     return '<div class="boardbar">' +
+        '<button id="addClient" class="btn btn--sm">+ Add client to Nominated</button>' +
         '<label for="coachFilter">Filter</label> <select id="coachFilter">' + coachOpts + "</select>" +
         '<span class="boardbar__note">' + list.length + " active · sorted by longest in stage</span>" +
       "</div>" +
-      '<div class="board">' + cols + "</div>" + extras;
+      '<div class="board">' + cols + "</div>" + extras +
+      '<div id="boardResult" class="result"></div>';
   }
 
-  root.PipelineBoard = { render: render, ageClass: ageClass, fmtAge: fmtAge, dots: dots };
+  /**
+   * Which cycle a new nomination opens for this client.
+   *
+   * A testimonial is (email, cycle). A client can have more than one over
+   * time — a re-nomination opens the next cycle — but never two at once, so
+   * an active cycle blocks a new one rather than silently forking.
+   */
+  function nextCycleFor(state, email) {
+    var mine = state.testimonials.filter(function (t) { return t.email === email; });
+    if (!mine.length) return { ok: true, cycle: 1 };
+
+    var active = mine.filter(function (t) {
+      return !t.stage.terminal && t.stage.key !== "published";
+    });
+    if (active.length) {
+      return { ok: false, reason: "already has an active testimonial (cycle " +
+               active[0].cycle + ", " + active[0].stage.label + ")" };
+    }
+    var max = mine.reduce(function (m, t) { return Math.max(m, t.cycle); }, 0);
+    return { ok: true, cycle: max + 1 };
+  }
+
+  var wired = false;
+  var ctx = { state: null };
+
+  function wire(state) {
+    ctx.state = state;
+    var cf = document.getElementById("coachFilter");
+    if (cf) cf.addEventListener("change", function () {
+      root.PipelineBoard._opts.coach = cf.value;
+      if (root.TDApp) root.TDApp.rerender();
+    });
+
+    if (wired) return;
+    var host = document.getElementById("app");
+    if (!host) return;
+    wired = true;
+
+    host.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("#addClient") : null;
+      if (!btn) return;
+      var st = ctx.state;
+      var out = document.getElementById("boardResult");
+      function say(m, c) { if (out) { out.textContent = m; out.className = "result " + (c || ""); } }
+
+      if (!root.EventWriter.getActor()) {
+        say("Pick who you are in the top bar first — every action is attributed.", "bad");
+        return;
+      }
+
+      // Roster only. Identity is the master key and is never guessed, so a
+      // new card can only be opened for someone the roster resolves.
+      var taken = {};
+      st.testimonials.forEach(function (t) {
+        if (!t.stage.terminal && t.stage.key !== "published") taken[t.email] = t;
+      });
+      var options = (st.roster || [])
+        .filter(function (r) { return !taken[r.email]; })
+        .sort(function (a, b) { return a.clientName.localeCompare(b.clientName); })
+        .map(function (r) {
+          return { value: r.email, label: r.clientName + "  ·  " + (r.coach || "no coach") };
+        });
+
+      if (!options.length) { say("Every active roster client already has a live testimonial.", "warn"); return; }
+
+      root.Dialog.confirm({
+        title: "Add a client to Nominated",
+        body: "The coach nominated them and you are logging it. This only opens the card — nothing is sent to anyone.",
+        select: { label: "Client (from the Active Client Roster)", options: options,
+                  placeholder: "— choose a client —" },
+        input: { label: "Note (optional)", placeholder: "e.g. nominated by Brent in Slack" },
+        confirmLabel: "Add to Nominated"
+      }).then(function (res) {
+        if (!res) return;
+        var email = res.selected;
+        var who = (st.roster || []).filter(function (r) { return r.email === email; })[0];
+        var next = nextCycleFor(st, email);
+        if (!next.ok) { say(who.clientName + " " + next.reason + ".", "bad"); return; }
+
+        say("Adding " + who.clientName + "…", "");
+        root.EventWriter.appendEvent({
+          email: email,
+          stage: root.TDConfig.STAGES.NOMINATION_LOGGED,
+          event: res.value || ("Nomination logged for " + who.clientName),
+          cycle: next.cycle
+        }).then(function (r) {
+          say(r.message + (next.cycle > 1 ? "  Opened cycle " + next.cycle + "." : ""), r.verified ? "ok" : "warn");
+          if (r.verified && root.TDApp) root.TDApp.reload();
+        }).catch(function (err) { say(err.message, "bad"); });
+      });
+    });
+  }
+
+  root.PipelineBoard = {
+    render: render, wire: wire, nextCycleFor: nextCycleFor,
+    ageClass: ageClass, fmtAge: fmtAge, dots: dots,
+    _opts: { coach: "" }
+  };
 })(typeof window !== "undefined" ? window : this);

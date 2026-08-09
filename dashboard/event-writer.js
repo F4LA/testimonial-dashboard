@@ -167,8 +167,63 @@
       });
   }
 
+  /**
+   * Ask the proxy to queue this client for the collection engine's fan-out.
+   *
+   * The dashboard cannot tick the Signal checkbox and expect the engine to
+   * react — Apps Script onEdit triggers never fire for script-made edits. The
+   * proxy writes the row a human tick would write; the engine's poll picks it
+   * up within a minute.
+   *
+   * @param {string} clientName  EXACT roster Client Name (rosterByName_ needs
+   *                             exactly one match and never approximates)
+   */
+  function requestFanout(clientName) {
+    var actor = getActor();
+    if (!actor) return Promise.reject(new Error("No person selected. Every action must be attributed."));
+    if (!clientName) return Promise.reject(new Error("Missing client name."));
+    if (!CFG.WEB_APP_URL || CFG.WEB_APP_URL.indexOf("PASTE_") === 0) {
+      return Promise.reject(new Error("No Apps Script Web App URL configured."));
+    }
+    return post({ action: "requestFanout", clientName: clientName, actor: actor })
+      .then(function () {
+        // no-cors hides the response, so confirm by re-reading the Signal tab
+        return confirmQueued(clientName);
+      });
+  }
+
+  /** Re-read the Signal tab until the queued row appears. */
+  function confirmQueued(clientName, attempt) {
+    attempt = attempt || 1;
+    var MAX = 4;
+    return new Promise(function (r) { setTimeout(r, 900 * attempt); })
+      .then(function () {
+        var S = CFG.SHEETS.SIGNAL;
+        return root.SheetsReader.fetchSheet(S.id, S.tab);
+      })
+      .then(function (rows) {
+        var parsed = root.SheetsReader._parseSignal(rows);
+        for (var i = parsed.length - 1; i >= 0; i--) {
+          if (parsed[i].clientName.toLowerCase() === String(clientName).toLowerCase()) {
+            var done = !!parsed[i].processed;
+            return { ok: true, queued: true, processed: done,
+                     message: done
+                       ? "The engine has already run the fan-out for " + clientName + "."
+                       : "Queued " + clientName + " in the Signal sheet. The engine runs the fan-out within a minute." };
+          }
+        }
+        if (attempt < MAX) return confirmQueued(clientName, attempt + 1);
+        return { ok: false, queued: false,
+                 message: "The request was sent but no Signal row appeared. Check the Apps Script execution log — and Gaby can still tick the checkbox by hand." };
+      })
+      .catch(function (err) {
+        return { ok: false, queued: false, message: "Could not verify: " + err.message };
+      });
+  }
+
   root.EventWriter = {
     appendEvent: appendEvent,
+    requestFanout: requestFanout,
     getActor:    getActor,
     setActor:    setActor,
     clearActor:  clearActor,
