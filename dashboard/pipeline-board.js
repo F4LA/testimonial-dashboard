@@ -179,7 +179,7 @@
       if (!btn) return;
       var st = ctx.state;
       var out = document.getElementById("boardResult");
-      function say(m, c) { if (out) { out.textContent = m; out.className = "result " + (c || ""); } }
+      function say(m, c) { root.Dialog.feedback(btn, m, c); }
 
       if (!root.EventWriter.getActor()) {
         say("Pick who you are in the top bar first — every action is attributed.", "bad");

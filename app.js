@@ -44,6 +44,23 @@
     if (root.TDApp.state) root.Renderer.render(root.TDApp.state);
   }
 
+  /**
+   * A Web App serves its DEPLOYED version, not the editor's current code.
+   * Editing apps-script/Code.gs without redeploying leaves the old code
+   * running, and every new action returns "Unknown action" — which is exactly
+   * how the fan-out bridge failed silently. Check it, loudly, on every load.
+   */
+  function checkProxy() {
+    root.EventWriter.checkVersion().then(function (res) {
+      var bar = document.getElementById("proxyWarn");
+      if (!bar) return;
+      if (res.ok) { bar.hidden = true; bar.textContent = ""; return; }
+      bar.hidden = false;
+      bar.textContent = "⚠ " + res.message;
+      root.Dialog.toast(res.message, "bad");
+    });
+  }
+
   function init() {
     var v = document.getElementById("pagesUrl");
     if (v) v.textContent = CFG.PAGES_URL;
@@ -55,6 +72,7 @@
     root.addEventListener("hashchange", rerender);
 
     load().catch(function () { /* already surfaced */ });
+    checkProxy();
   }
 
   root.TDApp = { init: init, reload: load, rerender: rerender, state: null };

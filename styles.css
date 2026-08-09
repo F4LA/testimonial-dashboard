@@ -402,3 +402,40 @@ input[type="text"] { min-width: 220px; }
 .modal__box select, .modal__box input[type="text"] { width: 100%; margin-bottom: 10px; }
 .modal__err { font-size: 12px; color: var(--bad); min-height: 16px; margin-bottom: 4px; }
 .modal__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
+/* ---------- Feedback: toasts + inline result beside the button ---------- */
+
+.toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(460px, calc(100vw - 32px));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-left-width: 4px;
+  border-radius: 9px; padding: 10px 12px;
+  font-size: 13px; line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(0,0,0,.22);
+}
+.toast--ok   { border-left-color: var(--ok); }
+.toast--warn { border-left-color: var(--warn); }
+.toast--bad  { border-left-color: var(--bad); }
+.toast--info { border-left-color: var(--accent); }
+.toast__msg { flex: 1; word-break: break-word; }
+.toast__x {
+  border: 0; background: none; color: var(--ink-soft);
+  font-size: 17px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+
+.btnresult { font-size: 12px; margin-left: 8px; }
+.btnresult--ok   { color: var(--ok); }
+.btnresult--warn { color: var(--warn); }
+.btnresult--bad  { color: var(--bad); }
+.btnresult--info { color: var(--ink-soft); }
+
+.proxywarn {
+  background: var(--bad-bg); color: var(--bad);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 18px; font-size: 13px; font-weight: 600;
+}

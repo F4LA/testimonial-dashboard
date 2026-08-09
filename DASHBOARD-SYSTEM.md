@@ -248,7 +248,13 @@ Guarantees, enforced on **both** sides:
 1. **No anonymous writes.** An actor from `PEOPLE` (Joey, Miguel, Gaby, Bernardo, Sofi) is required. `Source` becomes `MANUAL - <Name>`. The picker remembers the choice in `localStorage`.
 2. **No engine impersonation.** `Stage` must be in the approved dashboard vocabulary; the five engine strings are explicitly excluded.
 3. **Header guard.** `Code.gs` re-checks that A–E are exactly the expected headers before every write, and refuses if they drifted.
-4. **Write then verify.** Apps Script Web Apps return no CORS headers, so the POST uses `mode:"no-cors"` and the response is unreadable (same as Coach Pulse). Fire-and-forget alone would let a silent failure look like success, so every write is confirmed by re-reading the log (up to 4 attempts with backoff).
+4. **Read the response, then verify.** The POST is a normal readable fetch — Apps Script *does* return `access-control-allow-origin: *` on its redirect target, verified live. `Content-Type` stays `text/plain` so it remains a CORS "simple request": Apps Script does not answer OPTIONS, so anything that triggers a preflight fails.
+
+This replaced `mode:"no-cors"`, inherited from Coach Pulse, which made every reply opaque. A real server error like `{"ok":false,"message":"Unknown action: requestFanout"}` was invisible and had to be *inferred* seconds later from a row that never appeared — which is exactly how the fan-out bridge failed on 2026-08-08 with no visible error at all. The server's own message is now reported first; re-reading the log stays as the second check. If the readable fetch ever fails at the network/CORS layer it falls back to an opaque send, so a write is never lost.
+
+**Proxy version handshake.** `Code.gs` exposes `PROXY_VERSION`; `config.js` holds `EXPECTED_PROXY_VERSION`. The dashboard pings on load and shows a red banner naming the redeploy steps when they differ. A Web App serves its **deployed** version, so editing `Code.gs` without redeploying silently keeps the old code running — that mismatch has now cost time twice (the coach form trigger, then this). Bump `PROXY_VERSION` whenever an action is added or changed.
+
+**Feedback is shown where the action happened.** Every result appears as a fixed toast (errors persist until dismissed, successes fade), beside the button that was clicked, and in the view's result strip. The result element used to live only at the bottom of the client card — several screens below a button near the top — so errors read as "nothing happened".
 
 **Timestamps are generated server-side by Apps Script** using `getSpreadsheetTimeZone()`, formatted `d MMM yyyy, H:mm`. Never by the browser. This keeps dashboard rows in the same clock and format as engine rows without introducing a new timezone.
 

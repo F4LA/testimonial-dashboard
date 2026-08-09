@@ -71,15 +71,83 @@
 
   /* ---------- Write ---------- */
 
+  /**
+   * POST to the proxy and READ the reply.
+   *
+   * This used to use mode:"no-cors", inherited from Coach Pulse, which made
+   * every response opaque — so a real server error like
+   * `{"ok":false,"message":"Unknown action: requestFanout"}` was invisible and
+   * had to be *inferred* seconds later from a row that never appeared.
+   *
+   * Apps Script does return `access-control-allow-origin: *` on the redirect
+   * target, so the response is readable. Verified against the live deployment.
+   *
+   * Content-Type MUST stay text/plain: that keeps this a CORS "simple request"
+   * with no preflight, and Apps Script does not answer OPTIONS. Apps Script
+   * reads e.postData.contents regardless, so JSON still arrives intact.
+   */
   function post(payload) {
     return fetch(CFG.WEB_APP_URL, {
       method: "POST",
-      mode: "no-cors",
-      // With no-cors the only permitted Content-Type is text/plain.
-      // Apps Script reads e.postData.contents regardless, so JSON still works.
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
-    });
+    })
+      .then(function (res) {
+        return res.text().then(function (txt) {
+          try {
+            return JSON.parse(txt);
+          } catch (e) {
+            throw new Error(
+              "The proxy replied with something that is not JSON (HTTP " + res.status + "). " +
+              "Check that the Web App URL is right and the deployment is set to 'Anyone'."
+            );
+          }
+        });
+      })
+      .catch(function (err) {
+        // A CORS or network failure lands here as a TypeError. Fall back to
+        // the opaque send so a write is never lost — the caller's verify step
+        // still confirms whether it landed.
+        if (err instanceof TypeError) {
+          return fetch(CFG.WEB_APP_URL, {
+            method: "POST", mode: "no-cors",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(payload)
+          }).then(function () { return { ok: true, opaque: true }; });
+        }
+        throw err;
+      });
+  }
+
+  /**
+   * Is the DEPLOYED proxy running the code this dashboard expects?
+   *
+   * A Web App serves its deployed version, not the editor's current content —
+   * so editing Code.gs without redeploying leaves the old code running, and
+   * every new action silently returns "Unknown action". That exact mismatch
+   * has now cost time twice, so it is checked rather than assumed.
+   */
+  function checkVersion() {
+    return post({ action: "ping" })
+      .then(function (body) {
+        if (body.opaque) {
+          return { ok: true, unknown: true, message: "Proxy version could not be read." };
+        }
+        var deployed = Number(body.version || 0);
+        var expected = CFG.EXPECTED_PROXY_VERSION;
+        if (deployed === expected) return { ok: true, deployed: deployed, expected: expected };
+        return {
+          ok: false, deployed: deployed, expected: expected,
+          message: deployed
+            ? "The deployed proxy is version " + deployed + " but this dashboard expects " + expected +
+              ". Paste apps-script/Code.gs into the dashboard's Apps Script project, then Deploy → Manage deployments → edit → New version."
+            : "The deployed proxy predates version tracking. Paste apps-script/Code.gs into the dashboard's Apps Script project, then Deploy → Manage deployments → edit → New version."
+        };
+      })
+      .catch(function (err) {
+        return { ok: false, deployed: 0, expected: CFG.EXPECTED_PROXY_VERSION,
+                 message: "Could not reach the proxy: " + err.message };
+      });
   }
 
   /**
@@ -127,8 +195,11 @@
     var verify = (o.verify !== false);
 
     return post(payload)
-      .then(function () {
-        if (!verify) return { ok: true, verified: false, row: null, message: "Sent (not verified)." };
+      .then(function (body) {
+        // Report the server's own error first. Inferring failure from an
+        // absent row takes seconds and says nothing about the cause.
+        if (body && body.ok === false) throw new Error(body.message || "The proxy refused the write.");
+        if (!verify) return { ok: true, verified: false, row: null, message: body.message || "Sent (not verified)." };
         return confirmWrite(email, stage, actor, cycle);
       });
   }
@@ -186,8 +257,9 @@
       return Promise.reject(new Error("No Apps Script Web App URL configured."));
     }
     return post({ action: "requestFanout", clientName: clientName, actor: actor })
-      .then(function () {
-        // no-cors hides the response, so confirm by re-reading the Signal tab
+      .then(function (body) {
+        if (body && body.ok === false) throw new Error(body.message || "The proxy refused the request.");
+        // Belt and braces: the proxy said yes, now confirm the row is really there.
         return confirmQueued(clientName);
       });
   }
@@ -224,6 +296,7 @@
   root.EventWriter = {
     appendEvent: appendEvent,
     requestFanout: requestFanout,
+    checkVersion: checkVersion,
     getActor:    getActor,
     setActor:    setActor,
     clearActor:  clearActor,

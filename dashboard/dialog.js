@@ -108,5 +108,62 @@
     });
   }
 
-  root.Dialog = { confirm: confirm };
+  /* ---------- Feedback ---------- */
+
+  var toastHost = null;
+
+  /**
+   * A fixed toast, visible regardless of scroll position.
+   *
+   * The client card runs several screens long, and the result element used to
+   * sit at the very bottom of it — so an error from a button near the top
+   * rendered far out of view and read as "nothing happened". Errors stay until
+   * dismissed; successes fade.
+   */
+  function toast(message, kind) {
+    if (!toastHost) {
+      toastHost = document.createElement("div");
+      toastHost.className = "toasts";
+      document.body.appendChild(toastHost);
+    }
+    var t = document.createElement("div");
+    t.className = "toast toast--" + (kind || "info");
+    t.innerHTML = '<span class="toast__msg"></span><button class="toast__x" aria-label="Dismiss">×</button>';
+    t.querySelector(".toast__msg").textContent = message;
+    t.querySelector(".toast__x").addEventListener("click", function () {
+      if (t.parentNode) t.parentNode.removeChild(t);
+    });
+    toastHost.appendChild(t);
+    if (kind === "ok" || kind === "info") {
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 6000);
+    }
+    return t;
+  }
+
+  /**
+   * Report the outcome of an action in all the places it might be looked for:
+   * a toast, beside the button that was clicked, and in the view's result
+   * strip. Feedback that only exists somewhere off-screen is not feedback.
+   */
+  function feedback(btn, message, kind) {
+    toast(message, kind);
+
+    if (btn && btn.parentNode) {
+      var slot = btn.parentNode.querySelector(":scope > .btnresult");
+      if (!slot) {
+        slot = document.createElement("span");
+        slot.className = "btnresult";
+        btn.parentNode.insertBefore(slot, btn.nextSibling);
+      }
+      slot.textContent = message;
+      slot.className = "btnresult btnresult--" + (kind || "info");
+    }
+
+    ["cardResult", "queueResult", "boardResult"].forEach(function (id) {
+      var n = document.getElementById(id);
+      if (n) { n.textContent = message; n.className = "result " + (kind === "ok" ? "ok" : kind === "bad" ? "bad" : kind === "warn" ? "warn" : ""); }
+    });
+  }
+
+  root.Dialog = { confirm: confirm, toast: toast, feedback: feedback };
 })(typeof window !== "undefined" ? window : this);

@@ -392,7 +392,8 @@
       var act = btn.getAttribute("data-act");
       var out = el("cardResult");
 
-      function say(msg, cls) { if (out) { out.textContent = msg; out.className = "result " + (cls || ""); } }
+      // Feedback goes to a toast, beside this button, and to the result strip.
+      function say(msg, cls) { root.Dialog.feedback(btn, msg, cls); }
       function val(id) { var n = el(id); return n ? n.value.trim() : ""; }
 
       var stage, text;

@@ -7,6 +7,37 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-08 — Fan-out bridge failed silently: three fixes
+
+**Symptom.** Firing the kickoff for Cameron Colbo dimmed the button for a few seconds, then restored it. No Signal row, no message, no error. `previewPendingSignals()` showed `pending: 0` — the engine and its triggers were fine and had nothing to process.
+
+**Root cause: the deployed proxy was running the old code.** POSTing to the live Web App:
+
+```
+{"action":"requestFanout"} → {"ok":false,"message":"Unknown action: requestFanout"}
+{"action":"appendEvent"}   → {"ok":false,"message":"Unknown or missing actor: \"\"."}
+```
+
+`requestFanout_` was added to `apps-script/Code.gs` in the repo, but that file is the *source of truth for* the deployed script, not the running code. The build walkthrough covered pasting `engine-signal-poll.gs` into the engine and never mentioned redeploying the dashboard's own proxy. Same class of failure as the coach form trigger: code updated, deployment not.
+
+**Why nothing was shown.** `mode:"no-cors"` made the reply opaque, so the real error was unreadable. The fallback path polled the Signal tab four times over ~4.5s and wrote *"no Signal row appeared"* into `#cardResult` — which sits at the very bottom of the client card, several screens below the button. The message existed and was unreachable.
+
+*(Method note: the first probe returned a Google 404 page and looked like `doPost` was missing. That was wrong — `curl -L` downgrades POST to GET on a 302, and the Apps Script redirect key is single-use. Following the redirect correctly showed `doPost` healthy.)*
+
+### Three fixes
+
+1. **Read the response.** Apps Script returns `access-control-allow-origin: *` on the redirect target — verified live — so `no-cors` was never necessary. The server's own error is now surfaced first, in under a second, instead of inferred from an absent row. `Content-Type` stays `text/plain` to remain a CORS simple request; Apps Script does not answer OPTIONS, so a preflight would fail. A network/CORS failure falls back to an opaque send so a write is never lost.
+2. **Feedback where the action is.** Fixed toast (errors persist, successes fade) + a result beside the clicked button + the view's result strip.
+3. **`PROXY_VERSION` handshake.** `Code.gs` reports its version, `config.js` states what it expects, the dashboard pings on load and shows a red banner naming the exact redeploy steps on mismatch. This class of bug fails silently by nature, so it is now detected automatically.
+
+**Verified against the live, still-stale deployment:** the handshake reports `deployed: 0, expected: 2` with the redeploy instructions; `requestFanout` rejects with the actual `"Unknown action: requestFanout"`; `appendEvent` still works.
+
+**The engine needed no changes.** The poll and all four triggers stay exactly as installed. Cameron remained safe in Outreach with no half-done state.
+
+**Files / commits:** `dashboard/{event-writer,dialog,client-card,queue-view,pipeline-board,config}.js` · `app.js` · `index.html` · `styles.css` · `apps-script/Code.gs`
+
+---
+
 ## 2026-08-08 — Fan-out bridge, manual entry into Nominated, and the move taxonomy
 
 Item 1 of the v2 redesign. The task-engine rebuild (item 2) has not started; Phase 4 stays untouched.

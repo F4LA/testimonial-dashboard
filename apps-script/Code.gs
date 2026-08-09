@@ -21,6 +21,14 @@ var EVENT_TAB = 'Event Log';
 var SETTINGS_TAB = 'Settings';
 var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
 
+/** Bump on every change to the actions this script exposes. The dashboard
+ *  compares it against TDConfig.EXPECTED_PROXY_VERSION on load and warns when
+ *  the deployment is stale — a Web App serves its DEPLOYED version, so editing
+ *  this file without redeploying silently keeps the old code running.
+ *    1 — appendEvent
+ *    2 — + requestFanout (the fan-out bridge) */
+var PROXY_VERSION = 2;
+
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
 var EXPECTED_HEAD = ['Client email', 'Stage', 'Date and time', 'Event', 'Source'];
@@ -79,7 +87,7 @@ function doPost(e) {
     switch (body.action) {
       case 'appendEvent':   return json(appendEvent_(body));
       case 'requestFanout': return json(requestFanout_(body));
-      case 'ping':          return json({ ok: true, message: 'alive' });
+      case 'ping':          return json({ ok: true, message: 'alive', version: PROXY_VERSION });
       default:            return json({ ok: false, message: 'Unknown action: ' + body.action });
     }
   } catch (err) {
@@ -88,7 +96,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return json({ ok: true, message: 'Testimonial Dashboard write proxy. POST only.' });
+  return json({ ok: true, message: 'Testimonial Dashboard write proxy. POST only.', version: PROXY_VERSION });
 }
 
 function json(obj) {

@@ -127,6 +127,14 @@
      * container-bound, so it can never touch the live collection engine. */
     WEB_APP_URL: "https://script.google.com/macros/s/AKfycbzx91ZuUb4zqHmVWpu4tmhvERURJo5CpQAujYySp7oLjMIh8G0C-E-Aqll5X-MnC3gZ/exec",
 
+    /* ---------- Proxy version handshake ----------
+     * A Web App serves its DEPLOYED version, not the editor's current code.
+     * Editing Code.gs without redeploying leaves the old code running and
+     * every new action returns "Unknown action" — silently, because the
+     * response used to be opaque. Bump this whenever Code.gs gains or changes
+     * an action, and the dashboard warns instead of failing quietly. */
+    EXPECTED_PROXY_VERSION: 2,
+
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.
      * Ecuador mainland is UTC-5 year-round — no DST, so a fixed offset is

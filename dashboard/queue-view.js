@@ -148,7 +148,7 @@
       if (!t || !t.action) return;
 
       var out = el("queueResult");
-      function say(m, c) { if (out) { out.textContent = m; out.className = "result " + (c || ""); } }
+      function say(m, c) { root.Dialog.feedback(btn, m, c); }
 
       btn.disabled = true;
       say("Writing…", "");
