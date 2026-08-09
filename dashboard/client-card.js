@@ -289,33 +289,66 @@
     return CFG.ENGINE_FANOUT.some(function (s) { return !!t.lastByStage[norm(s)]; });
   }
 
+  /**
+   * The kickoff checklist (v2 Flow 1+2 tail).
+   *
+   * Two steps, in order, because they are two different acts:
+   *   1. Fire the fan-out  — reaches outside the team, so it is confirmed
+   *   2. Send the instructions email, then confirm on Everfit, then mark it
+   *
+   * Step 2 is what STARTS THE VIDEO CLOCK (Flow 3). The fan-out only shares
+   * the folder; marking the email sent is the client actually being told what
+   * to do, so anchoring the 48h check on it avoids chasing someone who has
+   * not been asked yet.
+   */
   function kickoffBlock(t) {
     if (t.stage.terminal) return "";
     var norm = root.StateBuilder.normStage;
-    var kickoffSent = !!t.lastByStage[norm(S.INVITE_KICKOFF)];
     var ran = fanoutAlreadyRan(t);
+    var kickoffSent = !!t.lastByStage[norm(S.INVITE_KICKOFF)];
+    var instructions = t.lastByStage[norm(S.INVITE_INSTRUCTIONS)];
+    var coach = t.identity.coach || "the coach";
 
-    if (ran || kickoffSent) {
+    // Step 1 not done yet.
+    if (!ran && !kickoffSent) {
+      return '<section class="section section--danger">' +
+        "<h3>Kickoff — step 1 of 2</h3>" +
+        '<p class="section__sub">The client said yes. This fires the automation and moves them to Invited. ' +
+        "It is deliberately a button and not a side effect of moving the card, because it reaches outside the team.</p>" +
+        '<div class="actions">' +
+          '<button class="btn btn--danger" data-act="fire-fanout">Fire the kickoff fan-out</button>' +
+          '<span class="sub">Coach: ' + esc(coach) + "</span>" +
+        "</div></section>";
+    }
+
+    // Both steps done.
+    if (instructions) {
       return '<section class="section">' +
         "<h3>Kickoff</h3>" +
-        '<p class="section__sub">' +
-          (ran ? "The fan-out has already run for this cycle — the folder exists, folder 03 is shared, and the coach was notified."
-               : "The kickoff is marked sent; the fan-out has not written its events yet.") +
-        "</p>" +
-        '<span class="badge badge--ok">fan-out done</span>' +
+        '<p class="section__sub">Fan-out done and the instructions email is marked sent. ' +
+        "The video clock started " + esc(fmtWhen(instructions.ts)) + ".</p>" +
+        '<span class="badge badge--ok">kickoff complete</span>' +
         "</section>";
     }
 
-    var coach = t.identity.coach || "the coach";
-    return '<section class="section section--danger">' +
-      "<h3>Kickoff — fire the automation</h3>" +
-      '<p class="section__sub">The client said yes. This is the step that moves them to Invited and starts the collection. ' +
-      "It is deliberately a button and not a side effect of moving the card, because it reaches outside the team.</p>" +
-      '<div class="actions">' +
-        '<button class="btn btn--danger" data-act="fire-fanout">Fire the kickoff fan-out</button>' +
-        '<span class="sub">Coach: ' + esc(coach) + "</span>" +
+    // Step 1 done, step 2 outstanding.
+    var copy = root.Flows.render("instructionsConfirmation", {
+      Name: (t.identity.clientName || "").split(" ")[0] || t.email,
+      Client: t.identity.clientName || t.email
+    });
+
+    return '<section class="section">' +
+      "<h3>Kickoff — step 2 of 2</h3>" +
+      '<p class="section__sub">The fan-out has run: the folder exists, folder 03 is shared, and ' +
+      esc(coach) + " was notified. Now send the instructions email, confirm it on Everfit, and mark it here. " +
+      "<strong>Marking it is what starts the video clock.</strong></p>" +
+      '<div class="copybox">' +
+        '<button class="btn btn--sm" data-act="copy-tpl" data-tpl="instructionsConfirmation">Copy the Everfit confirmation</button>' +
+        '<pre class="copybox__text">' + esc(copy) + "</pre>" +
       "</div>" +
-      "</section>";
+      '<div class="actions">' +
+        '<button class="btn btn--ok" data-act="instructions-sent">Mark the instructions email sent</button>' +
+      "</div></section>";
   }
 
   /* ---------- Stage advance (no calendar UI — Phase 4 adds that) ---------- */
@@ -446,6 +479,28 @@
         text = val("noteText");
         if (!text) { say("Write the note first.", "bad"); return; }
         stage = S.NOTE;
+
+      } else if (act === "copy-tpl") {
+        var tplKey = btn.getAttribute("data-tpl");
+        var tplText = root.Flows.render(tplKey, {
+          Name: (t.identity.clientName || "").split(" ")[0] || t.email,
+          Client: t.identity.clientName || t.email,
+          coach: t.identity.coach || "the coach",
+          Coach: t.identity.coach || "the coach"
+        });
+        if (tplText && root.navigator && root.navigator.clipboard) {
+          root.navigator.clipboard.writeText(tplText).then(function () {
+            say("Message copied. Paste it into Everfit.", "ok");
+          }).catch(function () {
+            say("Could not copy automatically — select the text and copy it.", "warn");
+          });
+        }
+        return;
+
+      } else if (act === "instructions-sent") {
+        write(btn, say, S.INVITE_INSTRUCTIONS,
+              "Instructions email sent and confirmed on Everfit. Video clock started.");
+        return;
 
       } else if (act === "fire-fanout") {
         fireFanout(t, btn, say);

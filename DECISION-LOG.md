@@ -7,6 +7,23 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — Kickoff checklist completed; Flow 3 can now start
+
+Adding SOP §3's Everfit confirmation message surfaced a gap: **nothing anywhere wrote `Invite — instructions email sent`**, so Flow 3's clock could never start and the video ladder was unreachable. The walkthrough had described a "Mark email sent" button that did not exist.
+
+`kickoffBlock` is now an ordered two-step checklist:
+
+1. **Fire the fan-out** — confirmed, since it reaches outside the team.
+2. **Send the instructions email, confirm on Everfit, mark it** — with the SOP copy on a Copy button, then a button writing `Invite — instructions email sent`.
+
+They are two different acts, and only the second means the client has been told what to do. Anchoring the 48h video check there rather than on the fan-out avoids chasing someone who has not been asked.
+
+**Verified:** all eight live clients show *step 2 of 2* (they were fanned out but never marked); marking it flips the card to *kickoff complete, video clock running*; and with `?sim=+60h` Flow 3 then produces *"Check if Cameron Colbo uploaded their video."* — which produced nothing before. All templates render, none empty, none containing an em dash.
+
+**Files / commits:** `dashboard/client-card.js` · `dashboard/flows.js`
+
+---
+
 ## 2026-08-09 — Video follow-up copy found in the SOP · coachFormUrl set
 
 **Correction.** I reported that no client-facing video-upload follow-ups existed in the SOP. That was wrong. They are in **SOP §3, "Follow-Up System for Uploads"** — I had searched only revision 5, where that section was dropped. The copy lives in revisions 1 through 4.

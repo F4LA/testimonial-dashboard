@@ -79,6 +79,16 @@
         "It takes just a few minutes and we need it to build their testimonial. " +
         "Here's the link: [form]. In the client selector, choose [Client]."
     },
+    // SOP §3 "Send Confirmation via Everfit" — sent right after the
+    // instructions email so the client knows to expect it. Used on the
+    // kickoff checklist, not by any timed rung.
+    instructionsConfirmation: {
+      source: "SOP §3 Send Confirmation via Everfit",
+      text:
+        "Hey [Name], I just sent you the instructions for your testimonial via email " +
+        "(from support@fit4lifeacademy.health). Let me know once you upload the video, " +
+        "or if you have any questions!"
+    },
     videoCoachTold: {
       source: "v2",
       text:

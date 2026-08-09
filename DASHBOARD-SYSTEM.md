@@ -436,7 +436,14 @@ SOP §3's upload cadence is **48h / 48h / 48h**, which matches v2's Flow 3 exact
 
 **One edit to the SOP wording:** both upload messages used an em dash (`busy—just`), which v2 forbids. Replaced with a comma, preserving the voice. `Flows.checkTemplates()` asserts no template contains an em dash.
 
-**Unused but available:** SOP §3 also has an Everfit confirmation message sent right after the instructions email — *"Hey [Name], I just sent you the instructions for your testimonial via email…"*. It is not wired to any task; it would belong on the kickoff checklist's "Mark email sent" step if wanted.
+### The kickoff checklist — two steps, and the second starts the video clock
+
+`ClientCard.kickoffBlock` renders the tail of Flow 1+2 as an ordered checklist, because these are two different acts:
+
+1. **Fire the fan-out** — confirmed, because it reaches outside the team (§10.6).
+2. **Send the instructions email, confirm on Everfit, mark it here** — with SOP §3's *"Send Confirmation via Everfit"* copy on a Copy button.
+
+**Step 2 writes `Invite — instructions email sent`, which is what starts Flow 3.** The fan-out only shares the folder; this is the client actually being told what to do, so anchoring the 48h video check here avoids chasing someone who has not been asked yet. Before this existed nothing wrote that event, so Flow 3 could never start.
 
 `Flows.checkTemplates()` asserts no template contains an em dash, per v2.
 
