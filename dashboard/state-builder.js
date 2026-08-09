@@ -292,7 +292,7 @@
       identity:   identity,
       videoLink:  "",                       // filled from the Signal tab in build()
       stage:      stage,
-      hoursInStage: isFinite(stage.at) ? (Date.now() - stage.at) / 36e5 : NaN,
+      hoursInStage: isFinite(stage.at) ? (root.TDClock.now() - stage.at) / 36e5 : NaN,
       inputs:     inputs,
       inputsArrived: CFG.INPUTS.filter(function (i2) { return arrived(inputs[i2.key].state); }).length,
       folderEvent: folderEv,

@@ -133,7 +133,7 @@
     if (!o.anchor || !isFinite(o.anchor.ts)) return null;
     var wait = o.hours * HOUR;
     var due = o.anchor.ts + wait;
-    var now = Date.now();
+    var now = root.TDClock.now();
     if (now < due) return null;
 
     return {
@@ -181,7 +181,7 @@
         title: notMsg
           ? "Check if " + v.coach + " messaged " + v.Client + ", then do the outreach."
           : "Do outreach to " + v.Client + " (if the coach already messaged them).",
-        detail: notMsg ? "Waiting on the coach since " + Math.round((Date.now() - lastNot.ts) / HOUR) + "h ago." : "",
+        detail: notMsg ? "Waiting on the coach since " + Math.round((root.TDClock.now() - lastNot.ts) / HOUR) + "h ago." : "",
         actions: [
           { label: "Mark sent", stage: S.OUTREACH_SENT, event: "Outreach sent on Everfit from Bernardo's account" },
           { label: "Coach hasn't messaged", stage: S.OUTREACH_COACH_NOT_MSG,
@@ -356,7 +356,7 @@
 
     var anchor = h.last(S.COLLECTION_VIDEO) || h.last(E.CLIENT_VIDEO_LINK);
     var stale = anchor && isFinite(anchor.ts) &&
-                (Date.now() - anchor.ts) / HOUR > s.collectingStaleHours;
+                (root.TDClock.now() - anchor.ts) / HOUR > s.collectingStaleHours;
 
     var actions = [];
     if (!everfit) actions.push({ label: "Everfit received", stage: S.COLLECTION_EVERFIT,
@@ -373,7 +373,7 @@
       template: null,
       actions: actions,
       anchorTs: anchor ? anchor.ts : NaN, dueTs: NaN,
-      waitedHours: anchor ? (Date.now() - anchor.ts) / HOUR : NaN,
+      waitedHours: anchor ? (root.TDClock.now() - anchor.ts) / HOUR : NaN,
       severity: stale ? "overdue" : "reminder",
       blocking: true
     };
@@ -396,12 +396,12 @@
     var pendingText = pending.length + " of " + CFG.PIECES.length + " pieces still open";
 
     var chased = h.last(S.PRODUCTION_CHASED);
-    var elapsedDays = (Date.now() - day0.ts) / DAY;
+    var elapsedDays = (root.TDClock.now() - day0.ts) / DAY;
 
     // Gaby's escalation, re-arming so it never goes quiet.
     if (elapsedDays >= s.contentEscalateDays) {
       var anchor = chased || day0;
-      var hours = chased ? s.contentEscalateDays * 24 : (s.contentEscalateDays * 24 - (Date.now() - day0.ts) / HOUR + 0.001);
+      var hours = chased ? s.contentEscalateDays * 24 : (s.contentEscalateDays * 24 - (root.TDClock.now() - day0.ts) / HOUR + 0.001);
       var r = rung({
         flow: "content", rung: "escalate", owner: "Gaby",
         hours: chased ? s.contentEscalateDays * 24 : 0,
@@ -451,7 +451,7 @@
       });
     }
 
-    var waited = (Date.now() - (nudged ? nudged.ts : ready.ts)) / HOUR;
+    var waited = (root.TDClock.now() - (nudged ? nudged.ts : ready.ts)) / HOUR;
     if (waited >= s.approvalEscalateHours) {
       return rung({
         flow: "approval", rung: "escalate", owner: "Gaby",

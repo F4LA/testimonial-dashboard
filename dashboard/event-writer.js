@@ -162,6 +162,12 @@
    * @returns {Promise<{ok:boolean, verified:boolean, row:Object|null, message:string}>}
    */
   function appendEvent(o) {
+    if (root.TDClock && root.TDClock.isSimulated()) {
+      return Promise.reject(new Error(
+        "The clock is simulated (" + root.TDClock.label() + "), so writing is disabled. " +
+        "A task can look overdue when it is not. Remove ?sim= from the URL to act for real."
+      ));
+    }
     var actor = getActor();
     var email = String(o && o.email || "").trim().toLowerCase();
     var stage = String(o && o.stage || "").trim();
@@ -250,6 +256,12 @@
    *                             exactly one match and never approximates)
    */
   function requestFanout(clientName) {
+    if (root.TDClock && root.TDClock.isSimulated()) {
+      return Promise.reject(new Error(
+        "The clock is simulated (" + root.TDClock.label() + "), so writing is disabled. " +
+        "A task can look overdue when it is not. Remove ?sim= from the URL to act for real."
+      ));
+    }
     var actor = getActor();
     if (!actor) return Promise.reject(new Error("No person selected. Every action must be attributed."));
     if (!clientName) return Promise.reject(new Error("Missing client name."));

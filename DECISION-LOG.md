@@ -7,6 +7,24 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — A real simulated clock (`?sim=`)
+
+Testing the ladders meant waiting real hours, and the only tool for it was a scratchpad harness that was deleted after the v2 build. Offering to build it rather than building it was the wrong call — the request was to watch a threshold cross, and `?sim=` was tried twice against a feature that did not exist. No query-param handling existed anywhere in the codebase.
+
+**One clock seam.** Every rule that asks how long something has waited now reads `TDClock.now()` — 7 reads in `flows.js`, 1 in `state-builder.js`. Shifting one function is exact; shifting event timestamps, as the old harness did, only approximates it.
+
+**Parser tolerates what a person actually types.** A literal `+` in a query string decodes to a space, so `?sim=+60h`, `?sim= 60h` and `?sim=%2B60h` all work, as do `2d`, `90m`, `-24h` and a bare `60`. An unparseable value shows a banner naming the accepted forms instead of silently doing nothing — which is exactly how the missing feature presented.
+
+**Writes are refused while shifted**, with a banner saying so. A time-shifted view plus a live action button lets someone send a follow-up that is not actually due.
+
+**Clarified, because the behaviour changed at v2:** time controls whether a rung appears and how urgent it looks, but **ladder wording advances on button presses, not on the clock**. The Phase-3 engine rewrote titles on a threshold; v2 is press-driven, matching the spec's flow tables. Exactly one task rewrites on time alone — Flow 5's Everfit/photos escalation.
+
+**Verified end to end:** `?sim=+30h` surfaces Cameron's reply check and his coach-form chase; `+60h` pushes six chases to overdue; `+120h` rewrites eight reminders to *"has been waiting 5 days on your Everfit data and photos"*; `?sim=5d` is identical to `+120h`; a write while shifted is refused.
+
+**Files / commits:** `dashboard/clock.js` · `dashboard/{flows,state-builder,event-writer}.js` · `app.js` · `index.html` · `styles.css`
+
+---
+
 ## 2026-08-08 — Fan-out bridge failed silently: three fixes
 
 **Symptom.** Firing the kickoff for Cameron Colbo dimmed the button for a few seconds, then restored it. No Signal row, no message, no error. `previewPendingSignals()` showed `pending: 0` — the engine and its triggers were fine and had nothing to process.

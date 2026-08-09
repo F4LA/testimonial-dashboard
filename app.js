@@ -61,7 +61,25 @@
     });
   }
 
+  function showSimBanner() {
+    var bar = document.getElementById("simWarn");
+    if (!bar) return;
+    if (!root.TDClock.isSimulated()) {
+      if (root.TDClock.raw()) {
+        bar.hidden = false;
+        bar.textContent = '⚠ Could not read ?sim=' + root.TDClock.raw() +
+          '  ·  try +60h, 2d, 90m or -24h';
+      } else { bar.hidden = true; }
+      return;
+    }
+    bar.hidden = false;
+    bar.textContent = "🕑 Simulated clock: " + root.TDClock.label() +
+      " ahead of now. This is a preview — writing is disabled. Remove ?sim= from the URL to act for real.";
+  }
+
   function init() {
+    root.TDClock.init();
+    showSimBanner();
     var v = document.getElementById("pagesUrl");
     if (v) v.textContent = CFG.PAGES_URL;
 

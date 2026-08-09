@@ -481,6 +481,20 @@ Three distinct mechanisms. Confusing them is how a system either nags people int
 
 **⚠️ There is no reverse event anywhere in the vocabulary.** The ladder is forward-only by design — append-only log, monotonic stage. A mis-marked step cannot be unmarked, only annotated with a note. That is why Published confirms despite not being outward-facing. If corrections are ever needed, a `Pipeline — correction` event that voids a prior one would be the shape, and it is a fold change.
 
+### The simulated clock (`?sim=`)
+
+Every rule that asks "how long has this been waiting?" reads `TDClock.now()`, never `Date.now()`. One seam, so a simulated clock is exact rather than approximated by shifting event timestamps.
+
+```
+https://f4la.github.io/testimonial-dashboard/?sim=+60h#/queue
+```
+
+Accepts `+60h` · `60h` · `2d` · `90m` · `-24h` · `60` (hours by default). A literal `+` in a query string decodes to a space, so the parser tolerates both and the URL works as typed. The `?sim=` goes **before** the `#`.
+
+**Writes are refused while shifted.** A time-shifted view plus a live action button is a footgun: a task can look overdue when it is not, and the follow-up would go out early. Reading is safe, acting is not, so the simulation is strictly read-only and says so in a banner.
+
+**What time alone changes.** Time controls whether a rung *appears* and how urgent it looks. **The wording of a ladder advances on button presses, not on the clock** — v2 is press-driven. Exactly one task rewrites itself on time alone: Flow 5's Everfit/photos escalation at `collectingStaleHours`.
+
 ### Drag-and-drop
 
 Not built. Every move today is a labelled button on the client card. Drag is planned as an **enhancement after launch**: it replaces the button as the way to *initiate* a move and lands on the same confirmation and block layer, unchanged. Sequenced deliberately — the functional base ships first, drag follows.
