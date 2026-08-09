@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-07**
+**Last updated: 2026-08-08**
 **Phase: 1–3 complete and live (Foundation · Pipeline board + client card · Action queue + alerts). The Slack digest is written but NOT wired. Phases 4–5 not built.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -364,7 +364,11 @@ It defaults to **the signed-in person's own list** — a queue showing everyone'
 
 Each task carries one owner, a plain-language title, the reason, a link to the client card, and — where a single write settles it — an inline action button that appends the same event the card would.
 
-### The rules (`dashboard/alerts.js`)
+### The rules — see §10.4b for the v2 ladders (`dashboard/flows.js`)
+
+*(The table below is the superseded Phase-3 model, kept only for history.)*
+
+#### Superseded
 
 Two invariants, both from spec §5: **every task has exactly one owner** (an alert with no owner is spam), and **every threshold comes from the Settings tab**, never from code.
 
@@ -388,6 +392,47 @@ Severity is `overdue` past the threshold, `due` inside it, `review` for items wi
 **Manual-review flags never block.** A Meet or Loom flag surfaces so it is not silently lost, and says so in its own text — *"does not block the pipeline — often just means this client has none."* Only the video and Gaby's two manual pulls gate Producing (§4.6).
 
 Closed testimonials raise nothing.
+
+---
+
+## 10.4b The seven flows (Task Model v2, D-090)
+
+`dashboard/flows.js` holds the ladders as readable rules; `alerts.js` walks them. Each flow is a state machine: the clock re-anchors on every action, and the rung depends on which button was pressed and how many times. **A rung produces no task until its threshold passes** — before that, the client is simply inside their window.
+
+Three invariants, asserted rather than assumed:
+
+- **One task per flow per client.** Rungs are sequential.
+- **Every owner is a real dashboard user** — Gaby, Miguel, Joey, Bernardo. **Coaches never own tasks**; a coach-dependent step is Gaby's "chase the coach". A coach owner is a bug, and `alerts.js` reports it in `problems`.
+- **Every threshold comes from the Settings tab.**
+
+| Flow | Anchor | Ladder |
+|---|---|---|
+| **1+2 Outreach** | `Nomination — logged` | do outreach → *coach hasn't messaged* ×2 → **Bernardo** · *mark sent* → +24h reply check → *no reply* → FU#1 +24h → FU#2 +48h → tell the coach +48h |
+| **3 Video** | `Invite — instructions email sent` | +48h check folder 03 → *checked, not there* re-arms · FU#1 → +48h FU#2 → +48h tell the coach |
+| **4 Coach form** | `Collection — coach notice` (engine) | +24h **Gaby** chases → +24h **Bernardo**. Clears itself when the engine writes `Collection — coach form`. |
+| **5 Everfit + photos** | video/folder event | passive reminder to **Gaby**, one soft escalation at `collectingStaleHours`, never leaves her |
+| **6 Content** | `Collection — complete` | +5d **Miguel** soft check-in → +7d **Gaby**. **Per client, never per piece.** |
+| **7 Approval** | all five pieces done | **Joey** → +48h **Gaby** tells Bernardo → **Bernardo** nudges Joey |
+
+**Why Flow 3 anchors on the instructions email.** The fan-out shares the folder; the *instructions email* is the client being told what to do. Starting the 48h clock at the fan-out would chase a client who has not been asked yet.
+
+**Why Flow 6 is per client.** The five-piece checklist on the card is the detail view and is unchanged. The alert watches the whole package, so Miguel gets one question rather than five clocks. Both rungs measure from day 0, so acknowledging the 5d check-in clears Miguel's rung but does not postpone Gaby's 7d escalation — the escalation is about the work, not the reply. There is deliberately **no landing-page threshold**: landing-page-first is an agreement between Bernardo and Miguel, not a dashboard rule.
+
+### Copy provenance
+
+Every template records where its wording came from, because the sources disagree.
+
+| Template | Source |
+|---|---|
+| Outreach follow-up #1, #2 | **SOP §2.5**, verbatim wording on v2's relative clock |
+| Tell the coach (no response) · Coach form follow-up · Tell the coach (no video) | **v2 spec** |
+| Video follow-up #1, #2 | **none exist** — see below |
+
+SOP §2.5 has **three** follow-ups anchored to Wednesday/Friday/Monday around the Sunday raffle deadline. v2 deliberately moved to relative-per-client timing, so FU#1 and FU#2 keep their wording and **FU#3 was dropped** — its text says the deadline has already passed, which is false on a relative clock.
+
+**⚠️ The video follow-ups do not exist.** The v2 spec says they "already exist in Gaby's SOP and are reused". They do not: SOP §3.5 is a checking procedure, not a message. The queue shows *"No approved message exists for this step yet"* rather than inventing copy in Gaby's voice.
+
+`Flows.checkTemplates()` asserts no template contains an em dash, per v2.
 
 ---
 

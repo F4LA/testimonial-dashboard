@@ -48,6 +48,7 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | Rule | Frontend | Apps Script |
 |---|---|---|
 | fold, ladder, classifiers | `dashboard/state-builder.js` | `apps-script/Digest.gs` |
+| the seven task ladders | `dashboard/flows.js` | `apps-script/Digest.gs` |
 | Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
 | task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` |
 | Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |

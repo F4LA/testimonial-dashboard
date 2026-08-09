@@ -49,7 +49,17 @@
     NOMINATION_WARMUP:        "Nomination — coach warm-up done",
     OUTREACH_SENT:            "Outreach — sent",
     OUTREACH_ACCEPTED:        "Outreach — client accepted",
+    // --- v2 ladder (D-090) ---
+    OUTREACH_COACH_NOT_MSG:   "Outreach — coach not messaged",
+    OUTREACH_BERNARDO_NUDGED: "Outreach — Bernardo nudged coach",
+    OUTREACH_NO_REPLY:        "Outreach — no reply",
+    OUTREACH_FOLLOWUP:        "Outreach — follow-up sent",
+    OUTREACH_COACH_TOLD:      "Outreach — coach told",
+
     INVITE_KICKOFF:           "Invite — kickoff sent",
+    // Starts the video clock. Distinct from the fan-out: the fan-out shares
+    // the folder, this is the client actually being told what to do.
+    INVITE_INSTRUCTIONS:      "Invite — instructions email sent",
 
     // Manual fallback for the video. The client uploads straight into Drive
     // folder 03 and NOTHING fires (no folder watch exists), so today this is
@@ -60,6 +70,12 @@
     COLLECTION_PHOTOS:        "Collection — photos received",
     COLLECTION_COMPLETE:      "Collection — complete",
     COLLECTION_FLAG_RESOLVED: "Collection — manual review resolved",
+    // --- v2 ladder (D-090) ---
+    COLLECTION_VIDEO_CHECKED: "Collection — video checked",
+    COLLECTION_VIDEO_FOLLOWUP:"Collection — video follow-up sent",
+    COLLECTION_VIDEO_COACH:   "Collection — video coach told",
+    COACH_FORM_CHASED:        "Collection — coach form chased",
+    COACH_FORM_NUDGED:        "Collection — coach form nudged",
 
     PRODUCTION_CAROUSEL:      "Production — carousel",
     PRODUCTION_STORY:         "Production — story",
@@ -67,8 +83,13 @@
     PRODUCTION_CASE_STUDY:    "Production — case study",
     PRODUCTION_WEEKLY_EMAIL:  "Production — weekly email",
 
+    PRODUCTION_CHECKIN_ACK:   "Production — check-in acknowledged",
+    PRODUCTION_CHASED:        "Production — chased",
+
     APPROVAL_APPROVED:        "Approval — approved",
     APPROVAL_SENT_BACK:       "Approval — sent back",
+    APPROVAL_ESCALATED:       "Approval — escalated to Bernardo",
+    APPROVAL_BERNARDO_NUDGED: "Approval — Bernardo nudged",
 
     SCHEDULE_WEEK_ASSIGNED:   "Schedule — week assigned",
     SCHEDULE_POST:            "Schedule — post scheduled",
@@ -133,7 +154,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 2,
+    EXPECTED_PROXY_VERSION: 3,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.
@@ -238,14 +259,29 @@
     /* ---------- Settings defaults ----------
      * Live values come from the Settings tab; these backfill missing keys. */
     SETTINGS_DEFAULTS: {
-      nominationWarmupHours:     24,
-      outreachFollowupHours:     72,
-      inviteUploadFollowupHours: 96,
-      collectingStaleHours:      120,
-      producingPieceHours:       168,
-      approvalPendingHours:      72,
-      bufferTargetWeeks:         4,
-      activeMonth:               ""
+      // Flow 1+2 · outreach
+      outreachCoachNotMessagedHours: 24,
+      outreachReplyCheckHours:       24,
+      outreachFollowup1Hours:        24,
+      outreachFollowup2Hours:        48,
+      outreachCoachToldHours:        48,
+      // Flow 3 · client video
+      videoCheckHours:               48,
+      // Flow 4 · coach form
+      coachFormFollowupHours:        24,
+      coachFormEscalateHours:        24,
+      // Flow 5 · Everfit + photos — passive, one soft escalation to Gaby
+      collectingStaleHours:          120,
+      // Flow 6 · content, per client (never per piece)
+      contentCheckinDays:            5,
+      contentEscalateDays:           7,
+      // Flow 7 · approval
+      approvalEscalateHours:         48,
+      // Phase 4
+      bufferTargetWeeks:             4,
+      activeMonth:                   "",
+      // The coach form link used in the coach-form follow-up template.
+      coachFormUrl:                  ""
     },
 
     /* ---------- Time-in-stage colouring (hours) ---------- */

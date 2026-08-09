@@ -1,12 +1,12 @@
 /**
- * Testimonial Dashboard — Action queue (Phase 3)
+ * Testimonial Dashboard — Action queue (Task Model v2)
  *
- * The dashboard is the home of the queue (spec §5). Slack carries it out to
- * people once a day; this is where they come to work.
+ * The dashboard is the home of the queue; Slack carries it out once a day.
+ * Defaults to the signed-in person's own list — a queue showing everyone's
+ * work is a report, not a worklist.
  *
- * Defaults to the signed-in person's own list — "their today" — because a
- * queue that shows everyone's work is a report, not a worklist. The other
- * owners are one click away.
+ * Each task shows the action in plain words, the copy to paste where there is
+ * any, and the buttons that advance its ladder. No pipeline stage names.
  */
 (function (root) {
   "use strict";
@@ -28,20 +28,35 @@
     return Math.round(h / 24) + "d";
   }
 
-  var SEV_LABEL = { overdue: "overdue", due: "due", review: "review" };
+  var SEV_TEXT = { overdue: "overdue", due: "now", reminder: "pending", review: "review" };
 
-  function taskRow(t) {
-    var age = "";
-    if (t.severity === "overdue") {
-      age = '<span class="tsev tsev--overdue">' + fmtAge(t.overdueBy) + " over</span>";
-    } else if (isFinite(t.hours) && isFinite(t.threshold)) {
-      age = '<span class="tsev tsev--due">' + fmtAge(t.hours) + " / " + fmtAge(t.threshold) + "</span>";
-    } else {
-      age = '<span class="tsev tsev--review">review</span>';
+  function taskRow(t, idx) {
+    var age = '<span class="tsev tsev--' + esc(t.severity) + '">' +
+      (isFinite(t.waitedHours) && t.severity !== "reminder"
+        ? fmtAge(t.waitedHours) + " waiting"
+        : SEV_TEXT[t.severity]) + "</span>";
+
+    var buttons = (t.actions || []).map(function (a, i) {
+      return '<button class="btn btn--sm' + (a.tone === "ok" ? " btn--ok" : "") +
+        '" data-qact="1" data-id="' + esc(t.id) + '" data-i="' + i + '">' + esc(a.label) + "</button>";
+    }).join("");
+
+    var copyBlock = "";
+    if (t.copy) {
+      copyBlock =
+        '<div class="copybox">' +
+          '<button class="btn btn--sm" data-qcopy="1" data-id="' + esc(t.id) + '">Copy message</button>' +
+          '<pre class="copybox__text">' + esc(t.copy) + "</pre>" +
+        "</div>";
+    } else if (t.copySource === "NONE") {
+      copyBlock =
+        '<div class="copybox copybox--missing">No approved message exists for this step yet. ' +
+        "Send it in your own words and mark it here.</div>";
     }
 
-    var act = t.action
-      ? '<button class="btn btn--sm" data-qact="1" data-id="' + esc(t.id) + '">' + esc(t.action.label) + "</button>"
+    var noteField = (t.actions || []).some(function (a) { return a.needsNote; })
+      ? '<input type="text" class="tasknote" data-note="' + esc(t.id) + '" placeholder="' +
+        esc((t.actions.filter(function (a) { return a.needsNote; })[0] || {}).needsNote || "") + '">'
       : "";
 
     var link = t.clientKey
@@ -51,14 +66,13 @@
     return '<li class="task task--' + esc(t.severity) + '">' +
       '<div class="task__main">' +
         '<div class="task__title">' + esc(t.title) +
-          (t.blocking ? ' <span class="badge badge--warn">blocks Producing</span>' : "") + "</div>" +
+          (t.blocking ? ' <span class="badge badge--warn">needed for production</span>' : "") + "</div>" +
         (t.detail ? '<div class="task__detail">' + esc(t.detail) + "</div>" : "") +
-        '<div class="task__meta">' + link +
-          (t.stageLabel ? '<span class="sub"> · ' + esc(t.stageLabel) + "</span>" : "") +
-          (t.channel === root.Alerts.CHANNEL ? ' <span class="badge badge--muted">content channel</span>' : "") +
-        "</div>" +
+        copyBlock +
+        (noteField ? '<div class="task__note">' + noteField + "</div>" : "") +
+        '<div class="task__meta">' + link + "</div>" +
       "</div>" +
-      '<div class="task__side">' + age + act + "</div>" +
+      '<div class="task__side">' + age + '<div class="task__btns">' + buttons + "</div></div>" +
       "</li>";
   }
 
@@ -72,7 +86,7 @@
       "</section>";
   }
 
-  var view = { owner: null };   // null = "my queue" from the actor picker
+  var view = { owner: null };
 
   function render(state, alerts) {
     var actor = root.EventWriter.getActor();
@@ -88,39 +102,37 @@
     var head =
       '<div class="qbar">' +
         '<div class="qtabs">' + tabs +
-          '<button class="qtab' + (selected === "__all" ? " is-on" : "") + '" data-owner="__all">Everyone<span class="qtab__n">' +
-          alerts.counts.total + "</span></button>" +
+          '<button class="qtab' + (selected === "__all" ? " is-on" : "") + '" data-owner="__all">Everyone' +
+          '<span class="qtab__n">' + alerts.counts.total + "</span></button>" +
         "</div>" +
         '<div class="qstats">' +
           '<span class="tsev tsev--overdue">' + alerts.counts.overdue + " overdue</span>" +
-          '<span class="tsev tsev--due">' + alerts.counts.due + " due</span>" +
+          '<span class="tsev tsev--due">' + alerts.counts.due + " now</span>" +
+          '<span class="tsev tsev--reminder">' + alerts.counts.reminder + " pending</span>" +
           '<span class="tsev tsev--review">' + alerts.counts.review + " review</span>" +
         "</div>" +
       "</div>";
 
+    var warn = alerts.problems.length
+      ? '<div class="proxywarn">⚠ ' + esc(alerts.problems.join(" · ")) + "</div>"
+      : "";
+
     var body;
     if (!alerts.counts.total) {
-      body = '<section class="section"><p class="empty">Nothing to do. Every testimonial is inside its thresholds.</p></section>';
+      body = '<section class="section"><p class="empty">Nothing to do. Every client is inside their window.</p></section>';
     } else if (selected === "__all") {
       body = alerts.owners.map(function (o) { return ownerSection(o, alerts.byOwner[o], o === actor); }).join("");
     } else if (!selected) {
       body = '<section class="section"><p class="empty">Pick who you are in the top bar to see your queue, ' +
-             "or choose an owner above.</p></section>";
+             "or choose someone above.</p></section>";
     } else if (!alerts.byOwner[selected]) {
       body = '<section class="section"><h2>' + esc(selected) + "</h2>" +
-             '<p class="empty">Nothing assigned right now.</p></section>';
+             '<p class="empty">Nothing for you right now.</p></section>';
     } else {
       body = ownerSection(selected, alerts.byOwner[selected], selected === actor);
     }
 
-    var channelNote = alerts.counts.channel
-      ? '<section class="section"><h3>Content channel</h3>' +
-        '<p class="section__sub">' + alerts.counts.channel + " production item" +
-        (alerts.counts.channel === 1 ? "" : "s") +
-        " surface in the testimonial-management channel rather than a DM, so Gaby can push Miguel or the agency in the open. Owners are labelled on each task.</p></section>"
-      : "";
-
-    return head + body + channelNote + '<div id="queueResult" class="result"></div>';
+    return warn + head + body + '<div id="queueResult" class="result"></div>';
   }
 
   var wired = false;
@@ -141,28 +153,50 @@
         return;
       }
 
+      var copyBtn = e.target.closest ? e.target.closest("[data-qcopy]") : null;
+      if (copyBtn) {
+        var ct = find(copyBtn.getAttribute("data-id"));
+        if (ct && ct.copy && root.navigator && root.navigator.clipboard) {
+          root.navigator.clipboard.writeText(ct.copy).then(function () {
+            root.Dialog.feedback(copyBtn, "Message copied. Paste it into Everfit or Slack.", "ok");
+          }).catch(function () {
+            root.Dialog.feedback(copyBtn, "Could not copy automatically — select the text and copy it.", "warn");
+          });
+        }
+        return;
+      }
+
       var btn = e.target.closest ? e.target.closest("[data-qact]") : null;
       if (!btn) return;
-      var id = btn.getAttribute("data-id");
-      var t = ctx.alerts.tasks.filter(function (x) { return x.id === id; })[0];
-      if (!t || !t.action) return;
+      var t = find(btn.getAttribute("data-id"));
+      if (!t) return;
+      var action = (t.actions || [])[Number(btn.getAttribute("data-i"))];
+      if (!action) return;
 
-      var out = el("queueResult");
       function say(m, c) { root.Dialog.feedback(btn, m, c); }
+
+      var text = action.event || "";
+      if (action.needsNote) {
+        var field = host.querySelector('.tasknote[data-note="' + CSS.escape(t.id) + '"]');
+        var v = field ? field.value.trim() : "";
+        if (!v) { say(action.needsNote + " is required.", "bad"); return; }
+        text = v;
+      }
 
       btn.disabled = true;
       say("Writing…", "");
-      root.EventWriter.appendEvent({
-        email: t.email, stage: t.action.stage, event: t.action.event, cycle: t.cycle
-      }).then(function (res) {
-        say(res.message, res.verified ? "ok" : "warn");
-        btn.disabled = false;
-        if (res.verified && root.TDApp) root.TDApp.reload();
-      }).catch(function (err) {
-        say(err.message, "bad");
-        btn.disabled = false;
-      });
+      root.EventWriter.appendEvent({ email: t.email, stage: action.stage, event: text, cycle: t.cycle })
+        .then(function (res) {
+          say(res.message, res.verified ? "ok" : "warn");
+          btn.disabled = false;
+          if (res.verified && root.TDApp) root.TDApp.reload();
+        })
+        .catch(function (err) { say(err.message, "bad"); btn.disabled = false; });
     });
+
+    function find(id) {
+      return ctx.alerts.tasks.filter(function (x) { return x.id === id; })[0];
+    }
   }
 
   root.QueueView = { render: render, wire: wire, _view: view };

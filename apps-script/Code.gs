@@ -26,8 +26,9 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *  the deployment is stale — a Web App serves its DEPLOYED version, so editing
  *  this file without redeploying silently keeps the old code running.
  *    1 — appendEvent
- *    2 — + requestFanout (the fan-out bridge) */
-var PROXY_VERSION = 2;
+ *    2 — + requestFanout (the fan-out bridge)
+ *    3 — + the v2 task-model Stage strings (D-090) */
+var PROXY_VERSION = 3;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -44,39 +45,81 @@ var PEOPLE = ['Gaby', 'Miguel', 'Joey', 'Bernardo'];
  *  Nomination). This script must never forge an event the engine owns.
  *  Kept in lockstep with TDConfig.STAGES in dashboard/config.js. */
 var ALLOWED_STAGES = [
-  'Nomination — logged', 'Nomination — coach warm-up done',
-  'Outreach — sent', 'Outreach — client accepted',
+  'Nomination — logged',
+  'Nomination — coach warm-up done',
+  'Outreach — sent',
+  'Outreach — client accepted',
+  'Outreach — coach not messaged',
+  'Outreach — Bernardo nudged coach',
+  'Outreach — no reply',
+  'Outreach — follow-up sent',
+  'Outreach — coach told',
   'Invite — kickoff sent',
+  'Invite — instructions email sent',
   'Collection — video uploaded',
-  'Collection — Everfit data', 'Collection — photos received',
-  'Collection — complete', 'Collection — manual review resolved',
-  'Production — carousel', 'Production — story', 'Production — reel',
-  'Production — case study', 'Production — weekly email',
-  'Approval — approved', 'Approval — sent back',
-  'Schedule — week assigned', 'Schedule — post scheduled',
-  'Schedule — email scheduled', 'Schedule — repost used',
+  'Collection — Everfit data',
+  'Collection — photos received',
+  'Collection — complete',
+  'Collection — manual review resolved',
+  'Collection — video checked',
+  'Collection — video follow-up sent',
+  'Collection — video coach told',
+  'Collection — coach form chased',
+  'Collection — coach form nudged',
+  'Production — carousel',
+  'Production — story',
+  'Production — reel',
+  'Production — case study',
+  'Production — weekly email',
+  'Production — check-in acknowledged',
+  'Production — chased',
+  'Approval — approved',
+  'Approval — sent back',
+  'Approval — escalated to Bernardo',
+  'Approval — Bernardo nudged',
+  'Schedule — week assigned',
+  'Schedule — post scheduled',
+  'Schedule — email scheduled',
+  'Schedule — repost used',
   'Publish — live',
-  'Pipeline — declined', 'Pipeline — dropped',
+  'Pipeline — declined',
+  'Pipeline — dropped',
   'Note',
-  'Raffle — winner confirmed', 'Raffle — messages sent', 'Raffle — month added',
-  'Review — self-reported', 'Review — confirmed', 'Review — unmatched',
+  'Raffle — winner confirmed',
+  'Raffle — messages sent',
+  'Raffle — month added',
+  'Review — self-reported',
+  'Review — confirmed',
+  'Review — unmatched',
   'Review — verification done',
-  'Podcast — invited', 'Podcast — accepted', 'Podcast — declined',
-  'Podcast — scheduled', 'Podcast — personal note sent',
-  'Podcast — recorded', 'Podcast — published',
-  'Client of the month — winner', 'Client of the month — shout-out'
+  'Podcast — invited',
+  'Podcast — accepted',
+  'Podcast — declined',
+  'Podcast — scheduled',
+  'Podcast — personal note sent',
+  'Podcast — recorded',
+  'Podcast — published',
+  'Client of the month — winner',
+  'Client of the month — shout-out'
 ];
 
 var SETTINGS_SEED = [
   ['Key', 'Value', 'Notes'],
-  ['nominationWarmupHours',     24,  'Alert if the coach warm-up is not done within N hours of nomination'],
-  ['outreachFollowupHours',     72,  'Alert if the client has not responded to outreach within N hours'],
-  ['inviteUploadFollowupHours', 96,  'Alert if the video is not uploaded within N hours of the kickoff email'],
-  ['collectingStaleHours',      120, 'Alert if a Collecting input is still missing after N hours'],
-  ['producingPieceHours',       168, 'Alert if a production piece is not done within N hours'],
-  ['approvalPendingHours',      72,  'Alert if Joey has not approved within N hours'],
-  ['bufferTargetWeeks',         4,   'Healthy buffer; the alert fires when it drops below this'],
-  ['activeMonth',               '',  'e.g. 2026-08 — blank means the current month']
+  ['outreachCoachNotMessagedHours', 24, 'Flow 1+2 · reappears to Gaby N hours after "coach hasn\'t messaged"'],
+  ['outreachReplyCheckHours', 24, 'Flow 1+2 · N hours after outreach, ask Gaby whether the client replied'],
+  ['outreachFollowup1Hours', 24, 'Flow 1+2 · follow-up #1, N hours after "no reply"'],
+  ['outreachFollowup2Hours', 48, 'Flow 1+2 · follow-up #2, N hours after follow-up #1'],
+  ['outreachCoachToldHours', 48, 'Flow 1+2 · tell the coach, N hours after follow-up #2'],
+  ['videoCheckHours', 48, 'Flow 3 · check folder 03 every N hours, and between video follow-ups'],
+  ['coachFormFollowupHours', 24, 'Flow 4 · Gaby chases the coach N hours after the DM went out'],
+  ['coachFormEscalateHours', 24, 'Flow 4 · escalates to Bernardo N hours after Gaby chased'],
+  ['collectingStaleHours', 120, 'Flow 5 · Everfit/photos reminder becomes a stronger nudge to Gaby after N hours'],
+  ['contentCheckinDays', 5, 'Flow 6 · soft check-in to Miguel N days after production starts'],
+  ['contentEscalateDays', 7, 'Flow 6 · escalate to Gaby N days after production starts'],
+  ['approvalEscalateHours', 48, 'Flow 7 · Joey has not approved after N hours, Gaby tells Bernardo'],
+  ['bufferTargetWeeks', 4, 'Phase 4 · healthy calendar buffer'],
+  ['activeMonth', '', 'e.g. 2026-08. Blank means the current month. Sets the deadline in the coach video message'],
+  ['coachFormUrl', '', 'Link used in the coach-form follow-up template']
 ];
 
 /* ===================== Entry points ===================== */
@@ -282,6 +325,37 @@ function setupPhase1() {
   }
 
   var msg = out.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+/**
+ * Adds any Settings key this script knows about that the tab is missing.
+ * Purely additive: existing rows and their values are never touched, so a
+ * tuned threshold is safe. Run after the v2 task model added its keys.
+ */
+function syncSettings() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(SETTINGS_TAB);
+  if (!sh) throw new Error('Settings tab not found. Run setupPhase1() first.');
+
+  var existing = {};
+  var rows = sh.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    var k = String(rows[i][0]).trim();
+    if (k) existing[k] = true;
+  }
+
+  var added = [];
+  for (var j = 1; j < SETTINGS_SEED.length; j++) {
+    var key = SETTINGS_SEED[j][0];
+    if (existing[key]) continue;
+    sh.appendRow(SETTINGS_SEED[j]);
+    added.push(key);
+  }
+  var msg = added.length
+    ? 'Added ' + added.length + ' key(s): ' + added.join(', ')
+    : 'Nothing to add. The Settings tab already has every key.';
   Logger.log(msg);
   return msg;
 }
