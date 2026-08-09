@@ -119,7 +119,7 @@ var SETTINGS_SEED = [
   ['approvalEscalateHours', 48, 'Flow 7 · Joey has not approved after N hours, Gaby tells Bernardo'],
   ['bufferTargetWeeks', 4, 'Phase 4 · healthy calendar buffer'],
   ['activeMonth', '', 'e.g. 2026-08. Blank means the current month. Sets the deadline in the coach video message'],
-  ['coachFormUrl', '', 'Link used in the coach-form follow-up template']
+  ['coachFormUrl', 'https://docs.google.com/forms/d/e/1FAIpQLSdSrP7-crZYsQ8DjDBgJUc06ojFRzz1pipduj3MUJue5jinwQ/viewform', 'Link used in the coach-form follow-up template']
 ];
 
 /* ===================== Entry points ===================== */

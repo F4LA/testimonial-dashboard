@@ -425,12 +425,18 @@ Every template records where its wording came from, because the sources disagree
 | Template | Source |
 |---|---|
 | Outreach follow-up #1, #2 | **SOP §2.5**, verbatim wording on v2's relative clock |
+| Video follow-up #1, #2 | **SOP §3** "Follow-Up System for Uploads" |
 | Tell the coach (no response) · Coach form follow-up · Tell the coach (no video) | **v2 spec** |
-| Video follow-up #1, #2 | **none exist** — see below |
+
+⚠️ **The video follow-ups live in SOP revisions 1–4, not revision 5** — that section was dropped in the newest file. Searching only the newest revision misses them.
 
 SOP §2.5 has **three** follow-ups anchored to Wednesday/Friday/Monday around the Sunday raffle deadline. v2 deliberately moved to relative-per-client timing, so FU#1 and FU#2 keep their wording and **FU#3 was dropped** — its text says the deadline has already passed, which is false on a relative clock.
 
-**⚠️ The video follow-ups do not exist.** The v2 spec says they "already exist in Gaby's SOP and are reused". They do not: SOP §3.5 is a checking procedure, not a message. The queue shows *"No approved message exists for this step yet"* rather than inventing copy in Gaby's voice.
+SOP §3's upload cadence is **48h / 48h / 48h**, which matches v2's Flow 3 exactly. As with outreach, the SOP's **third** client message is dropped — v2 replaces it with the tell-the-coach step.
+
+**One edit to the SOP wording:** both upload messages used an em dash (`busy—just`), which v2 forbids. Replaced with a comma, preserving the voice. `Flows.checkTemplates()` asserts no template contains an em dash.
+
+**Unused but available:** SOP §3 also has an Everfit confirmation message sent right after the instructions email — *"Hey [Name], I just sent you the instructions for your testimonial via email…"*. It is not wired to any task; it would belong on the kickoff checklist's "Mark email sent" step if wanted.
 
 `Flows.checkTemplates()` asserts no template contains an em dash, per v2.
 

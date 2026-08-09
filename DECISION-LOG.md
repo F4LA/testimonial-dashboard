@@ -7,6 +7,22 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — Video follow-up copy found in the SOP · coachFormUrl set
+
+**Correction.** I reported that no client-facing video-upload follow-ups existed in the SOP. That was wrong. They are in **SOP §3, "Follow-Up System for Uploads"** — I had searched only revision 5, where that section was dropped. The copy lives in revisions 1 through 4.
+
+Its cadence is **48h / 48h / 48h**, matching v2's Flow 3 exactly. Both messages are now wired verbatim, with the SOP's **third** client message dropped — v2 replaces it with the tell-the-coach step, the same treatment as outreach FU#3.
+
+**One wording edit:** both used an em dash (`busy—just`), which v2 forbids. Replaced with a comma, preserving the voice. `checkTemplates()` asserts this and now passes with **zero** empty templates.
+
+**`coachFormUrl` set** to the published responder link. It is placed in `SETTINGS_DEFAULTS` and seeded in `SETTINGS_SEED`, so it works immediately: `parseSettings` skips empty cells and falls back to the default, and the Settings tab can still override it. The coach-form template renders a real link with no placeholder remaining.
+
+**Method note worth keeping:** a document can have several revisions on disk with materially different content, and the newest is not necessarily the most complete. Searching one file and reporting absence was the error; search every revision.
+
+**Files / commits:** `dashboard/flows.js` · `dashboard/config.js` · `apps-script/Code.gs`
+
+---
+
 ## 2026-08-09 — A real simulated clock (`?sim=`)
 
 Testing the ladders meant waiting real hours, and the only tool for it was a scratchpad harness that was deleted after the v2 build. Offering to build it rather than building it was the wrong call — the request was to watch a threshold cross, and `?sim=` was tried twice against a feature that did not exist. No query-param handling existed anywhere in the codebase.

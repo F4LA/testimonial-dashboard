@@ -281,7 +281,7 @@
       bufferTargetWeeks:             4,
       activeMonth:                   "",
       // The coach form link used in the coach-form follow-up template.
-      coachFormUrl:                  ""
+      coachFormUrl:                  "https://docs.google.com/forms/d/e/1FAIpQLSdSrP7-crZYsQ8DjDBgJUc06ojFRzz1pipduj3MUJue5jinwQ/viewform"
     },
 
     /* ---------- Time-in-stage colouring (hours) ---------- */

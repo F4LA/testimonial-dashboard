@@ -86,12 +86,28 @@
         "If it's not in by [date] they won't make this month's round. " +
         "Could you give them a quick nudge? Thanks!"
     },
-    // The v2 spec says these "already exist in Gaby's SOP and are reused".
-    // They do not — SOP §3.5 is a checking procedure ("open the folder,
-    // confirm the file is present"), not a message. No approved client-facing
-    // upload nudge exists anywhere in the document. Left empty on purpose.
-    videoFollowup1: { source: "NONE", text: "" },
-    videoFollowup2: { source: "NONE", text: "" }
+    // SOP §3 "Follow-Up System for Uploads". Its cadence is 48h / 48h / 48h,
+    // which matches v2's Flow 3 exactly. The SOP has a THIRD client message;
+    // v2 replaces it with the tell-the-coach step, so FU#3 is dropped for the
+    // same reason as outreach FU#3.
+    //
+    // One edit to the SOP wording: both messages used an em dash ("busy—just"),
+    // and v2 forbids em dashes. Replaced with a comma, which keeps the voice.
+    // NOTE: these sections exist in SOP revisions 1-4, not in revision 5.
+    videoFollowup1: {
+      source: "SOP §3 Follow-Up System for Uploads, 1st",
+      text:
+        "Hey [Name], just checking in to see if you had a chance to upload your video! " +
+        "No worries if you're busy, just wanted to send a friendly reminder. " +
+        "Let me know if you have any questions!"
+    },
+    videoFollowup2: {
+      source: "SOP §3 Follow-Up System for Uploads, 2nd",
+      text:
+        "Hey [Name], just wanted to follow up again! " +
+        "Totally understand if you're busy, just checking if you're still planning to send in your testimonial. " +
+        "Let me know either way, and thank you again!"
+    }
   };
 
   /** Fill the placeholders. Missing values render as the placeholder itself,
