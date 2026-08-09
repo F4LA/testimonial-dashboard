@@ -19,6 +19,7 @@
 var SHEET_ID  = '17lWPi7o0Z1mR8yEkAh6vMEPOqZfQqSAaxeFM6eGIKmo';
 var EVENT_TAB = 'Event Log';
 var SETTINGS_TAB = 'Settings';
+var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -76,8 +77,9 @@ function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     switch (body.action) {
-      case 'appendEvent': return json(appendEvent_(body));
-      case 'ping':        return json({ ok: true, message: 'alive' });
+      case 'appendEvent':   return json(appendEvent_(body));
+      case 'requestFanout': return json(requestFanout_(body));
+      case 'ping':          return json({ ok: true, message: 'alive' });
       default:            return json({ ok: false, message: 'Unknown action: ' + body.action });
     }
   } catch (err) {
@@ -148,6 +150,78 @@ function assertHeader_(sh) {
     return { ok: false, message: 'The Cycle column is missing. Run setupPhase1() once, then retry.' };
   }
   return { ok: true };
+}
+
+/* ===================== Fan-out bridge ===================== */
+
+/**
+ * Queues a client for the collection engine's fan-out, so Gaby never touches
+ * the Signal sheet.
+ *
+ * It writes EXACTLY what a human tick writes — the roster name in column A and
+ * a boolean true in column B, leaving Processed empty — and the engine's
+ * `processPendingSignals` poll picks it up within a minute.
+ *
+ * It cannot tick the box and expect the engine's onEdit trigger to fire:
+ * Apps Script onEdit triggers never fire for edits made by a script or the
+ * Sheets API. Hence the poll on the engine side.
+ *
+ * Writes into the FIRST EMPTY PRE-MADE ROW rather than appending. The pre-made
+ * rows carry real checkbox formatting; an appended row would hold a text
+ * "TRUE" that the engine's `confirmed !== true` check rejects, and that Gaby
+ * could not use as the manual fallback.
+ */
+function requestFanout_(b) {
+  var name  = String(b.clientName || '').trim();
+  var actor = String(b.actor || '').trim();
+
+  if (PEOPLE.indexOf(actor) < 0) return { ok: false, message: 'Unknown or missing actor: "' + actor + '".' };
+  if (!name) return { ok: false, message: 'Missing client name.' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SIGNAL_TAB);
+    if (!sh) return { ok: false, message: 'Tab not found: ' + SIGNAL_TAB };
+
+    var last = Math.max(sh.getLastRow(), 1);
+    var rows = last > 1 ? sh.getRange(2, 1, last - 1, 3).getValues() : [];
+
+    var now = new Date();
+    var firstEmpty = 0;
+
+    for (var i = 0; i < rows.length; i++) {
+      var rowName  = String(rows[i][0] || '').trim();
+      var confirmed = rows[i][1];
+      var processed = rows[i][2];
+
+      if (rowName.toLowerCase() === name.toLowerCase()) {
+        // Layer 2 of the double-fire guard.
+        if (confirmed === true && !processed) {
+          return { ok: false, message: 'Already queued for ' + name + ' (Signal row ' + (i + 2) + '), waiting on the engine.' };
+        }
+        if (processed instanceof Date &&
+            processed.getFullYear() === now.getFullYear() &&
+            processed.getMonth() === now.getMonth()) {
+          return { ok: false, message: 'The fan-out already ran for ' + name + ' this month (Signal row ' + (i + 2) + ').' };
+        }
+      }
+      if (!firstEmpty && !rowName) firstEmpty = i + 2;
+    }
+
+    if (!firstEmpty) {
+      return { ok: false, message: 'No empty pre-made row left in the Signal tab. Add more rows with checkboxes in column B.' };
+    }
+
+    sh.getRange(firstEmpty, 1).setValue(name);
+    sh.getRange(firstEmpty, 2).setValue(true);     // boolean, not the string "TRUE"
+    SpreadsheetApp.flush();
+
+    return { ok: true, row: firstEmpty,
+             message: 'Queued ' + name + ' in Signal row ' + firstEmpty + '. The engine picks it up within a minute.' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ===================== One-time setup ===================== */
