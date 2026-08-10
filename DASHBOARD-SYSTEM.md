@@ -631,6 +631,16 @@ Fixed 2026-08-07 by resolving the log by id via a new `SIGNAL_SHEET_ID` Script P
 
 **Consequence for reading this system:** an engine handler running to Completed does **not** mean it wrote an event. Verify in the Event Log itself.
 
+### The preferences-form bridge (Phase 5 groundwork)
+
+`apps-script/engine-prefs-form-bridge.gs` — additive, engine-side. `onPrefsFormSubmit` turns the client's own form answers into events, because nothing else ever did: the raffle and reviews views assume those signals exist in the log and they never have.
+
+Writes `Preferences — photo permission`, `Preferences — review self-reported`, `Preferences — podcast consent`, and `Preferences — unresolved` for an identity failure. Reads **by header**, not index. **Podcast consent feeds the podcast chain only — it is not a raffle condition** (D-097). Raffle condition 2 is the existing client-video event; no new event for it.
+
+The group is deliberate: `Review — self-reported` is dashboard-writable, so putting the form's answer there would let a person forge a self-report and open the raffle. D-066's "never merged" holds structurally this way.
+
+Depends on the D-085 `logEvent_` fallback — this trigger is bound to the responses sheet, so `getActiveSpreadsheet()` returns the wrong file. `checkPrefsFormWiring()` asserts the fix is deployed before anything is installed.
+
 ### ⚠️ Open launch gap: the coach form trigger
 
 As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. **`onCoachFormSubmit` is absent.** Unlike the video handler, this one was never abandoned — the coach form is one of the five collected inputs and the fan-out DMs each coach a link to it. Without the trigger, coach responses at launch are silently lost: nothing routes them to folder 04 and no event is written. Repair steps live in `apps-script/engine-one-time-coach-form-trigger.gs`. This is a launch issue independent of the dashboard.

@@ -24,6 +24,35 @@ They are two different acts, and only the second means the client has been told 
 
 ---
 
+## 2026-08-09 — Phase 5 groundwork: the preferences-form bridge
+
+**The gap.** Spec §4.4 and §4.5 read as if the system "already knows" each client's photo permission, questionnaire, and review self-report. It does not. Verified against the engine source: its **nine** Stage strings contain no preferences handler, no `PREFS_FORM` property, and no trigger. Those answers have lived only in the responses sheet. Left alone, the raffle would show every client as *not qualified* forever — the same failure class as D-085, where the coach form routed correctly and silently wrote no event.
+
+**Built** (`apps-script/engine-prefs-form-bridge.gs`, additive, engine-side, paste-and-install): `onPrefsFormSubmit` reads the responses **by header** — the columns already shifted once when the podcast question was added, so indexes are unsafe — resolves the master-key email through the Active Client Roster, and writes one event per signal. No existing function is modified; the proxy and `PROXY_VERSION` are untouched, since this writes through `logEvent_` directly rather than through the write proxy.
+
+**Vocabulary — a dedicated `Preferences — ` group**, not a reuse of `Review — self-reported`:
+
+| Event | Feeds |
+|---|---|
+| `Preferences — photo permission` | raffle condition 1 · client card |
+| `Preferences — review self-reported` | raffle condition 3 · reviews view |
+| `Preferences — podcast consent` | podcast chain **only** — not a raffle condition (D-097) |
+| `Preferences — unresolved` | identity failure, empty email, system bucket |
+
+The group is a structural guarantee, not a naming preference. `Review — self-reported` already exists in the dashboard's ALLOWED_STAGES, so writing the form's answer under that string would let a **person** hand-enter a "self-report" and open the raffle. D-066 says the two review signals are never merged; keeping the client's own answers in an engine-owned group makes the merge impossible rather than merely discouraged.
+
+**Raffle condition 2 (questionnaire/testimonial) gets no new event** — it is the existing client-video event, which the view chunk reads.
+
+**Idempotency: none, deliberately.** A resubmission appends three more events. The log is append-only and the fold is latest-wins per (email, cycle, Stage), so the newest answer counts and the older ones remain as history.
+
+**D-085 dependency asserted, not assumed.** This trigger is bound to the responses sheet, so `getActiveSpreadsheet()` returns the wrong file — exactly the condition that silently voided the coach form. `checkPrefsFormWiring()` inspects the deployed `logEvent_` for the `SIGNAL_SHEET_ID` fallback and says STOP if it is absent.
+
+**⚠️ Raised for Bernardo:** the responses sheet has an `Email Address` column at index 7, alongside the form's own email question. That is consistent with *"Responder input"* (no login, fine) **and** with *"Verified"* (login required, which would break D-063 for external clients). The sheet cannot distinguish them — the form setting needs a look.
+
+**Files:** `apps-script/engine-prefs-form-bridge.gs`
+
+---
+
 ## 2026-08-09 — Video follow-up copy found in the SOP · coachFormUrl set
 
 **Correction.** I reported that no client-facing video-upload follow-ups existed in the SOP. That was wrong. They are in **SOP §3, "Follow-Up System for Uploads"** — I had searched only revision 5, where that section was dropped. The copy lives in revisions 1 through 4.
