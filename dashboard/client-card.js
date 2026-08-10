@@ -268,6 +268,21 @@
         "until someone reads it. It is not being treated as a refusal.</p>"
       : "";
 
+    /* The self-report shown below is the SAME engine-owned event the raffle
+       reads — one event, two readers, which is not merging. It deliberately
+       does NOT read the dashboard-writable `Review — self-reported`: nothing
+       writes that, and showing it here read "not reported" directly beneath a
+       raffle block saying the client had self-reported (D-098). */
+    var rc = comp.conditions.filter(function (c) { return c.key === "review"; })[0];
+    var reviewSelfRow =
+      "<tr><td>Review — self-reported<div class=\"sub\">the client's own form answer</div></td><td>" +
+      (rc.state === "missing"
+        ? '<span class="sub">' + esc(rc.empty) + "</span>"
+        : '<span class="cond cond--' + KIND[rc.state] + '"><span class="cond__m">' + MARK[rc.state] +
+          "</span>" + esc(rc.answer) + "</span>" +
+          (isFinite(rc.at) ? '<div class="sub">' + esc(fmtWhen(rc.at)) + "</div>" : "")) +
+      "</td></tr>";
+
     var raffleBlock =
       '<h4 class="rec__h">Raffle — ' + esc(root.RaffleFold.monthLabel(m.month)) +
         (m.moved ? " <span class='badge badge--warn'>moved from " +
@@ -285,9 +300,13 @@
       '<p class="section__sub">Review, raffle, and podcast are kept strictly separate and never merged.</p>' +
       raffleBlock +
       '<h4 class="rec__h">Review · podcast · client of the month</h4>' +
+      '<p class="section__sub">The two review signals are <strong>never merged</strong> (D-066). The self-report is the ' +
+      "client's own form answer and is what opens the raffle; confirmation is a human matching a real review by its " +
+      "public display name — an audit layer that never gates entry, so a genuine reviewer who cannot be matched is " +
+      "never excluded.</p>" +
       '<table class="table"><tbody>' +
-        line("Review — self-reported", r.reviewSelfReported, "not reported") +
-        line("Review — confirmed",     r.reviewConfirmed,    "not confirmed") +
+        reviewSelfRow +
+        line("Review — confirmed (audit, manual)", r.reviewConfirmed, "not confirmed") +
         line("Raffle — winner",        r.raffleWinner,       "—") +
         line("Client of the month",    r.cotmWinner,         "—") +
         "<tr><td>Podcast</td><td>" +

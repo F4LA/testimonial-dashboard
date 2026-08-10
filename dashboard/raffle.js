@@ -178,15 +178,17 @@
       return "unclear";
     }
 
+    // `lower` exists because "Google" is a proper noun — blanket .toLowerCase()
+    // on the labels produced "waiting on google review".
     return [
-      { key: "photo", n: 1, label: "Photo permission",
+      { key: "photo", n: 1, label: "Photo permission", lower: "photo permission",
         state: state(photo, photoEv),
         answer: photo ? photo.raw : "",
         at: photoEv ? photoEv.ts : NaN,
         empty: "no preferences form yet",
         stages: [PREFS.PHOTO] },
 
-      { key: "questionnaire", n: 2, label: "Questionnaire / testimonial",
+      { key: "questionnaire", n: 2, label: "Questionnaire / testimonial", lower: "the questionnaire video",
         state: videoIn ? "met" : (vid.state === "flagged" ? "unclear" : "missing"),
         answer: videoIn ? (vid.text || "video received") : "",
         at: vid.at,
@@ -194,7 +196,7 @@
         // No event of its own — the fold's definition, not a new string.
         stages: (CFG.INPUTS.filter(function (i) { return i.key === VIDEO_INPUT; })[0] || {}).stages || [] },
 
-      { key: "review", n: 3, label: "Google review (self-reported)",
+      { key: "review", n: 3, label: "Google review (self-reported)", lower: "the Google review",
         state: state(review, reviewEv),
         answer: review ? review.raw : "",
         at: reviewEv ? reviewEv.ts : NaN,

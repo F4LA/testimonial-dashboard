@@ -80,7 +80,7 @@
     if (!e.qualifies) {
       var missing = comp.conditions.filter(function (c) { return c.state !== "met"; });
       var unclear = missing.filter(function (c) { return c.state === "unclear"; });
-      var names = missing.map(function (c) { return c.label.toLowerCase(); });
+      var names = missing.map(function (c) { return c.lower || c.label.toLowerCase(); });
       var list = names.length === 1 ? names[0]
                : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
       why = '<div class="rf__why">Waiting on ' + esc(list) + ".";
