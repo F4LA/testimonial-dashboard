@@ -244,9 +244,47 @@
     var podcastKeys = Object.keys(r.podcast);
     var podcastState = podcastKeys.length ? podcastKeys[podcastKeys.length - 1].replace("PODCAST_", "").toLowerCase() : "";
 
+    /* --- Raffle compliance (Phase 5, computed live, read-only) --- */
+    var comp = root.RaffleFold.compliance(t);
+    var m = root.RaffleFold.monthOf(t);
+    var MARK = { "met": "✓", "not-met": "✕", "unclear": "?", "missing": "·" };
+    var KIND = { "met": "ok", "not-met": "bad", "unclear": "warn", "missing": "muted" };
+
+    var condRows = comp.conditions.map(function (c) {
+      return "<tr><td>" + c.n + " · " + esc(c.label) + "</td><td>" +
+        '<span class="cond cond--' + KIND[c.state] + '"><span class="cond__m">' + MARK[c.state] + "</span>" +
+        esc(c.state === "missing" ? c.empty : (c.answer || c.state)) + "</span>" +
+        (isFinite(c.at) ? '<div class="sub">' + esc(fmtWhen(c.at)) + "</div>" : "") +
+        "</td></tr>";
+    }).join("");
+
+    var verdict = comp.qualifies
+      ? '<span class="badge badge--ok">qualifies for the raffle</span>'
+      : '<span class="badge badge--muted">' + comp.met + "/" + comp.total + " — does not qualify yet</span>";
+
+    var raffleNote = comp.needsReview
+      ? '<p class="section__sub"><strong>' + esc(comp.unclear[0].label) + ' came back as "' +
+        esc(comp.unclear[0].answer) + '"</strong> — that is neither a yes nor a no, so it blocks entry ' +
+        "until someone reads it. It is not being treated as a refusal.</p>"
+      : "";
+
+    var raffleBlock =
+      '<h4 class="rec__h">Raffle — ' + esc(root.RaffleFold.monthLabel(m.month)) +
+        (m.moved ? " <span class='badge badge--warn'>moved from " +
+          esc(root.RaffleFold.monthLabel(m.from)) + "</span>" : "") + " " + verdict + "</h4>" +
+      '<p class="section__sub">Three conditions, computed live. The review condition reads the client\'s ' +
+      "<strong>self-report</strong>, never a confirmation (a real reviewer who cannot be matched by name is " +
+      "never excluded). Podcast consent is not a condition.</p>" +
+      raffleNote +
+      '<table class="table"><tbody>' + condRows + "</tbody></table>" +
+      '<p class="section__sub"><a href="#/raffle">See everyone in ' +
+        esc(root.RaffleFold.monthLabel(m.month)) + "'s raffle →</a></p>";
+
     return '<section class="section">' +
       "<h3>Recognitions</h3>" +
-      '<p class="section__sub">Review, raffle, and podcast are kept strictly separate and never merged. These views are built in Phase 5; the card shows their status.</p>' +
+      '<p class="section__sub">Review, raffle, and podcast are kept strictly separate and never merged.</p>' +
+      raffleBlock +
+      '<h4 class="rec__h">Review · podcast · client of the month</h4>' +
       '<table class="table"><tbody>' +
         line("Review — self-reported", r.reviewSelfReported, "not reported") +
         line("Review — confirmed",     r.reviewConfirmed,    "not confirmed") +

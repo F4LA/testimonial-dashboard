@@ -7,6 +7,28 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — Phase 5: raffle compliance (read-only half)
+
+The automatic "who qualifies" computation and its two surfaces — the client card's Recognitions block and a monthly `#/raffle` view. **Writes nothing**: no proxy call, no `PROXY_VERSION` bump, no `ALLOWED_STAGES` check (that moves to the first write chunk). The draw, the snapshot, and the parallel post-draw tasks are next.
+
+Full behaviour in `DASHBOARD-SYSTEM.md` §10.9. The decisions worth recording here:
+
+**Condition 2 got no new event.** It reads `CFG.INPUTS.video.stages`, the fold's own definition of "the video is in", so the raffle can never disagree with the pipeline board about the same fact.
+
+**Four invariants are enforced by a `selfCheck()` that throws at load**, not by convention — each one, if broken, lets somebody into the draw who should not be there: podcast consent is never a condition (D-097); the review condition never reads a confirmation (D-066); it never reads the dashboard-writable `Review — self-reported` (D-098); and it never reads `Collection — client video link`, which is the fan-out sharing folder 03 and would qualify every invited client. **Each guard was verified by sabotage** — a copy of the module edited to break each rule, confirming all four throw, and the clean file still loads.
+
+**Unclear is a third state, not a no.** The fold prefers the bridge's normalized prefix and falls back to the client's raw words, which resolves the pre-D-099 `Unclear answer: "Not yet"` rows with no backfill. A genuinely unreadable answer blocks entry and is surfaced for a human — never silently rejected.
+
+**Monthly scoping (D-100):** `activeMonth` from Settings, blank = current month; a testimonial belongs to the month of its **earliest event**, not the month it qualified — qualification is unstable under latest-wins and would let clients hop cohorts after a draw. The manual "moved to month X" override is **already respected by the reader** although nothing writes it yet, so the view is correct the moment the button ships.
+
+**`Digest.gs` unchanged and needs no change** — read-only, no task, no alert, so no second source of truth is created. Flagged: the moment the digest says anything raffle-shaped, D-088 requires the logic in both places in the same commit.
+
+**Verified** against the live log by unit-testing the fold on eight cases: Cameron Colbo 2/3 (photo ✓, review ✓, no video); Benjamin Jayne the inverse 1/3; a synthetic all-three-met using the *blur my face* variant → qualifies; a legacy unclear row recovering to a clean No; a genuinely unreadable answer staying unclear; an explicit photo No; the month override; and the fan-out trap correctly **not** satisfying condition 2.
+
+**Files:** `dashboard/raffle.js` · `dashboard/raffle-view.js` · `dashboard/client-card.js` · `dashboard/renderer.js` · `dashboard/config.js` · `index.html` · `styles.css`
+
+---
+
 ## 2026-08-09 — Bridge classifier fix: "Not yet" was not a No (D-099)
 
 Found while verifying the raffle compliance view, by pulling the **live form's actual option strings** instead of the wording everyone had been repeating.

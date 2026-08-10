@@ -506,6 +506,56 @@ The client card's stopgap `Assign a week` / `Post scheduled` / `Email scheduled`
 
 ---
 
+## 10.9 Raffle — compliance (Phase 5, read-only)
+
+`dashboard/raffle.js` (the fold) · `dashboard/raffle-view.js` (`#/raffle`) · the client card's Recognitions block.
+
+**This half writes nothing.** It computes from events that already exist and displays. No proxy call, no `PROXY_VERSION` bump, no `ALLOWED_STAGES` check — that check belongs to the first chunk that writes. The draw, the snapshot, and the parallel post-draw tasks are the next chunk.
+
+### The three conditions
+
+Entry is **photo permission + questionnaire/testimonial + Google review** (D-008, hard gate per D-059).
+
+| # | Condition | Reads |
+|---|---|---|
+| 1 | Photo permission | `Preferences — photo permission` |
+| 2 | Questionnaire / testimonial | the **existing** client-video signal — `CFG.INPUTS.video.stages`, i.e. `Collection — video uploaded` (live) or `Collection — client video` (dead alias). **No new event.** |
+| 3 | Google review | `Preferences — review self-reported` |
+
+Three things this must never do, each enforced by `selfCheck()`, which **throws at module load** rather than warning:
+
+- **Podcast consent is not a condition** (D-097). Tying entry to podcast willingness would invent a fourth condition and punish a client for declining a one-a-month opportunity.
+- **The review condition reads the self-report, never a confirmation** (D-066). Confirmation is the reviews view's audit layer; a genuine reviewer whose name cannot be matched must never be excluded.
+- **It reads the engine-owned `Preferences — review self-reported`, not the dashboard-writable `Review — self-reported`** (D-098) — otherwise a person could hand-enter a self-report and open the raffle.
+
+And the trap it is built around: **`Collection — client video link` is the fan-out sharing folder 03**, not the video arriving. It is the most common Collection string in the log; reading it would qualify every invited client instantly. `selfCheck()` throws if it appears. All four guards were verified by sabotaging a copy of the module and confirming each throws.
+
+### Reading the client's answer
+
+The bridge writes a normalized prefix plus the client's own words — `Yes ("Yes, done")`, `No ("Not yet")`. The fold prefers the prefix and **falls back to classifying the raw words** when the bridge could not. That fallback resolves the pre-D-099 `Unclear answer: "Not yet"` rows correctly with **no backfill**.
+
+Four states, and the distinction matters: `met` · `not-met` · **`unclear`** · `missing`. **An unreadable answer is not a no.** It blocks entry and is surfaced for a human, never treated as a silent refusal. Both photo yes-variants (*use them* / *blur my face*) are met; only the explicit no is not.
+
+### Which month a testimonial belongs to (D-100)
+
+The month is the Settings `activeMonth` (`YYYY-MM`); **blank means the current month**, exactly as that setting's own note already says. An invalid value falls back to the current month and says so on screen.
+
+A testimonial belongs to the month of its **earliest event** for that `(email, cycle)` — cohort-by-entry, in practice `Nomination — logged`. Deliberately **not** the month it qualified: qualification is unstable under latest-wins, so a client who qualified in August and resubmitted the form in September would silently hop cohorts and vanish from August's list, possibly after the draw ran. Entry is fixed the moment the testimonial exists.
+
+`cycle` is **not** a calendar concept — it is 1, 2, 3 per client. What it contributes is that a client's part-2 testimonial is a separate raffle subject.
+
+**The manual override is honoured now, though nothing writes it yet.** A real case the automatic rule cannot cover: a client says yes, sends nothing that week, sends it two weeks later. Gaby will move them to another month from the raffle view, and that move writes an attributed `Raffle — month moved` event carrying the target `YYYY-MM` — the decision must never live only in her head. The button is a write and ships with the draw chunk; this reader already respects the event, so the view is correct the moment it lands with nothing to recompute. **`Raffle — month moved` is in `config.js` but NOT in the proxy's `ALLOWED_STAGES` — add it and bump `PROXY_VERSION` before the first write.**
+
+### Digest
+
+**`Digest.gs` is unchanged and needs no change.** This chunk emits no task and no alert, so there is no second source of truth to keep. **The moment any digest output depends on raffle qualification**, D-088 applies: the qualification logic must exist in both `dashboard/raffle.js` and `Digest.gs`, with `selfCheck()` comparing them — in the same commit.
+
+### Known limit
+
+The bridge writes no cycle, so a blank cycle folds to 1 and a client's **cycle-2** preferences submission would attach to cycle 1. Harmless at launch, wrong on the first re-nomination (D-100).
+
+---
+
 ## 10.5 Daily Slack digest (`apps-script/Digest.gs`) — written, NOT wired
 
 Spec §5: one DM per person per day with only their own items, plus production items in the existing testimonial-management channel. Same mechanism as the monthly nomination scheduler — an Apps Script time trigger through the existing bot.

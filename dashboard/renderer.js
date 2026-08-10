@@ -31,6 +31,7 @@
     if (h === "/foundation")         return { view: "foundation" };
     if (h === "/board")              return { view: "board" };
     if (h === "/calendar")           return { view: "calendar" };
+    if (h === "/raffle")             return { view: "raffle" };
     // Spec §5: "the dashboard is the home — the action queue is always there
     // when someone opens it." An action engine opens on the work, not a board.
     return { view: "queue" };
@@ -139,6 +140,7 @@
         badge: alerts ? alerts.counts.total : 0, hot: over > 0 },
       { href: "#/board",      label: "Pipeline",   on: route.view === "board" || route.view === "client" },
       { href: "#/calendar",   label: "Calendar",   on: route.view === "calendar" },
+      { href: "#/raffle",     label: "Raffle",     on: route.view === "raffle" },
       { href: "#/foundation", label: "Foundation", on: route.view === "foundation" }
     ];
     return items.map(function (i) {
@@ -176,6 +178,9 @@
     } else if (route.view === "calendar") {
       host.innerHTML = root.CalendarView.render(state);
       root.CalendarView.wire(state);
+    } else if (route.view === "raffle") {
+      host.innerHTML = root.RaffleView.render(state);
+      root.RaffleView.wire(state);
     } else if (route.view === "foundation") {
       host.innerHTML = foundationView(state);
     } else {

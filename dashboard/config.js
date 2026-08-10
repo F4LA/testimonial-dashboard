@@ -106,6 +106,12 @@
     RAFFLE_WINNER:            "Raffle — winner confirmed",
     RAFFLE_MESSAGES:          "Raffle — messages sent",
     RAFFLE_MONTH_ADDED:       "Raffle — month added",
+    // ⚠️ READ-ONLY TODAY (D-100). The raffle compliance view already honours
+    // this override so the monthly cohort is correct the moment the button
+    // ships — but nothing writes it yet, and it is NOT in the proxy's
+    // ALLOWED_STAGES. Before the first write: add it there and bump
+    // PROXY_VERSION. Event text must contain the target month as YYYY-MM.
+    RAFFLE_MONTH_MOVED:       "Raffle — month moved",
 
     REVIEW_SELF_REPORTED:     "Review — self-reported",
     REVIEW_CONFIRMED:         "Review — confirmed",

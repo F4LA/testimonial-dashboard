@@ -526,3 +526,59 @@ a.wk__name:hover { color: var(--accent); }
 .mcell__name { font-size: 13.5px; font-weight: 620; text-decoration: none; color: inherit; }
 .mcell__empty { font-size: 12px; color: var(--ink-soft); }
 .mcell__badges { display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ==========================================================================
+ * Phase 5 · Raffle (read-only compliance)
+ *
+ * The three conditions are the whole message, so they read as chips rather
+ * than a table: shape and mark carry the state, colour only reinforces it.
+ * ========================================================================== */
+
+.raffle__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.raffle__n { text-align: right; flex: none; }
+.raffle__n__v { font-size: 32px; font-weight: 700; line-height: 1; }
+.raffle__n__l { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+.raffle__foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+.banner {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 12px; font-size: 13px;
+}
+.banner--warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+
+.conds { display: flex; flex-wrap: wrap; gap: 6px; }
+.cond {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px 3px 5px; border-radius: 999px;
+  font-size: 12px; font-weight: 560; white-space: nowrap;
+  background: var(--line); color: var(--ink-soft);
+}
+.cond__m { font-weight: 800; font-size: 12.5px; }
+.cond--ok    { background: var(--ok-bg);   color: var(--ok); }
+.cond--bad   { background: var(--bad-bg);  color: var(--bad); }
+.cond--warn  { background: var(--warn-bg); color: var(--warn); }
+.cond--muted { background: var(--line);    color: var(--ink-soft); }
+
+.rflist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rf {
+  display: grid; grid-template-columns: minmax(180px, 1fr) 2fr auto;
+  gap: 14px; align-items: start;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel);
+}
+/* A qualifying entry is the one that matters — it gets the only strong edge. */
+.rf--in { border-left: 3px solid var(--ok); background: var(--panel-2); }
+.rf--review { border-left: 3px solid var(--warn); }
+.rf__name { font-weight: 640; font-size: 14px; text-decoration: none; color: inherit; }
+.rf__name:hover { text-decoration: underline; }
+.rf__who { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.rf__why { font-size: 12px; color: var(--ink-soft); margin-top: 7px; line-height: 1.45; }
+.rf__state { text-align: right; }
+
+.rec__h { font-size: 13px; margin: 16px 0 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec__h:first-of-type { margin-top: 4px; }
+
+@media (max-width: 720px) {
+  .rf { grid-template-columns: 1fr; gap: 8px; }
+  .rf__state { text-align: left; }
+}
