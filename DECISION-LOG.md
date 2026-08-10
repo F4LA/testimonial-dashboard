@@ -7,6 +7,42 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — Bridge classifier fix: "Not yet" was not a No (D-099)
+
+Found while verifying the raffle compliance view, by pulling the **live form's actual option strings** instead of the wording everyone had been repeating.
+
+The Google-review question's negative option is **`"Not yet"`**, not `"No"`. The bridge's negative branch was `/^n(o)?\b/`, which does **not** match it — there is no word boundary between the `o` and the `t`. So the most common negative answer in the whole form was written to the event log as:
+
+```
+Unclear answer: "Not yet" — review manually
+```
+
+Manual-review noise pointed at Gaby, for a perfectly clear answer, on every client who had not yet left a review.
+
+It failed **safe** for the raffle — unclear is not a Yes, so nobody could wrongly qualify — but the log was wrong, and the log is the memory.
+
+**Fixed** to `/^n(o|ot)?\b/` and re-tested against all **seven** closed options the live form actually offers:
+
+| Answer | Before | After |
+|---|---|---|
+| `Yes, you can use my before/after photos` | Yes | Yes |
+| `Yes, you can use them, but please blur my face` | Yes | Yes |
+| `No, I'd rather not share them (…won't be entered…)` | No | No |
+| `Yes, done` | Yes | Yes |
+| **`Not yet`** | **UNCLEAR** | **No** |
+| `Yes, I'd be open to it` | Yes | Yes |
+| `No, I'd rather not` | No | No |
+
+Every closed option classifies; genuine free text (`"maybe later"`) still flags for review, which is the branch's real job.
+
+**The lesson worth keeping.** D-098's live validation answered **"Yes" to every question**, so the negative branch was never executed. A passing happy-path test is not coverage of the branch that matters — and the option strings should have been read off the live form from the start, which is exactly what found this.
+
+No schema change, no trigger change (a re-paste of the same file), proxy and `PROXY_VERSION` untouched.
+
+**Files:** `apps-script/engine-prefs-form-bridge.gs`
+
+---
+
 ## 2026-08-09 — Kickoff checklist completed; Flow 3 can now start
 
 Adding SOP §3's Everfit confirmation message surfaced a gap: **nothing anywhere wrote `Invite — instructions email sent`**, so Flow 3's clock could never start and the video ladder was unreachable. The walkthrough had described a "Mark email sent" button that did not exist.

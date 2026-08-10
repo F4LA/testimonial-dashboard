@@ -76,11 +76,21 @@ var PREFS_HDR = {
 };
 
 /** Radio answers are Yes/No, but keep the raw text when it is anything else
- *  rather than silently coercing it to a No. */
+ *  rather than silently coercing it to a No.
+ *
+ *  The negative branch must accept "Not yet" — the review question's actual
+ *  negative option. `/^n(o)?\b/` FAILED on it (no word boundary between the
+ *  "o" and the "t"), so the commonest negative answer in the whole form was
+ *  logged as "Unclear answer ... review manually" — manual-review noise aimed
+ *  at Gaby for a perfectly clear No. It failed safe for the raffle (unclear is
+ *  not a Yes, so nobody wrongly qualified) but it was wrong. Verified against
+ *  the live form's closed option set: "Yes, done" / "Not yet" (review),
+ *  the two yes-variants + the explicit no (photos), "Yes, I'd be open to it" /
+ *  "No, I'd rather not" (podcast). */
 function prefsYesNo_(raw) {
   var v = String(raw == null ? '' : raw).trim();
-  if (/^y(es)?\b/i.test(v)) return 'Yes';
-  if (/^n(o)?\b/i.test(v))  return 'No';
+  if (/^y(es)?\b/i.test(v))    return 'Yes';
+  if (/^n(o|ot)?\b/i.test(v))  return 'No';
   return '';
 }
 

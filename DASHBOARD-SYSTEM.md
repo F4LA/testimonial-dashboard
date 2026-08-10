@@ -645,6 +645,10 @@ Depends on the D-085 `logEvent_` fallback — this trigger is bound to the respo
 
 **Carry-forward for the alerts side of Phase 5:** `Preferences — unresolved` is written but surfaces to nobody. It must become a Gaby task (spec §5).
 
+**Answer classification (fixed 2026-08-09, D-099).** `prefsYesNo_` normalizes to `Yes` / `No` / unclear, and `prefsDetail_` always preserves the client's raw wording: `No ("Not yet")`. The negative branch is `/^n(o|ot)?\b/` — the `ot` alternative exists because the review question's negative option is **"Not yet"**, which the original `/^n(o)?\b/` missed (no word boundary between the `o` and the `t`), logging the commonest negative answer as manual-review noise. All seven of the live form's closed options classify; free text still flags. **Anything reading these events should parse the raw answer in the detail text, not the normalized prefix** — that keeps readers correct independently of this function.
+
+**Known limit — no cycle value.** `logEvent_` appends five columns, so column F is blank on every bridge row, and a blank cycle folds to 1. Correct for every client at launch; **wrong on the first re-nomination**, where a cycle-2 submission would attach to cycle 1. Tracked as a Phase 5 open item (D-100).
+
 ### The engine's triggers (five, as of 2026-08-09)
 
 `onSignalEdit` · `onCoachFormSubmit` · `processPendingSignals` · the weekly nomination · `onPrefsFormSubmit`.
