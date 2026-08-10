@@ -7,6 +7,33 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-09 — D-099 validated live; the log's append-only rule made absolute
+
+**The fix is confirmed on the branch that was actually broken.** The preferences form was resubmitted with `"Not yet"` on the review question, and **Event Log row 89** wrote `No ("Not yet")` — a clean No with the client's raw wording preserved, not an unclear flag. **Zero `Unclear answer` rows remain anywhere in the log.**
+
+Two behaviours neither D-098 nor D-099 had ever exercised live were confirmed in passing:
+
+- **Non-idempotency works as designed** — the resubmission appended three fresh rows (88–90). Nothing overwritten, nothing deduped.
+- **Latest-wins got its first real test** — row 86 says `Yes`, row 89 says `No`, same `(email, cycle, Stage)`. The newest answer counts; the older stays in the timeline as history.
+
+It also validated the raffle view for free, on the one path only tested synthetically: **Cameron moved from 2/3 to 1/3 with no code change.** His review condition renders `✕ Google review (self-reported)` and the sentence rewrote itself to *"Waiting on the questionnaire video and the Google review."* — the latest-wins read, the raw-answer parse, and the live-not-snapshotted rule all working together on real data.
+
+### The process correction
+
+New information about D-099 was first written **into the D-099 row itself**. That breaks the log's own first rule — *append-only, never edit a past row* — and the rule exists precisely so the log records what was known when, not a tidied-up version written with hindsight. A row edited after the fact can no longer be trusted as evidence of what anyone knew at the time.
+
+Reverted: **D-099's Decision and Context columns are now byte-identical to when they were first written** (verified against the commit that added them), and the live confirmation lives in the **Status** column — the one edit the rule permits on a past row:
+
+```
+Active — validated live Aug 9 (Event Log row 89, "Not yet" → clean No)
+```
+
+Audited the neighbours while there: **D-098 and D-100 are byte-identical to as-written.** This entry carries the detail, since a change log has no Status column.
+
+**The rule is absolute from here:** a past row's text is never rewritten. New information about an old decision goes in Status, or in a new row.
+
+---
+
 ## 2026-08-09 — Phase 5: raffle compliance (read-only half)
 
 The automatic "who qualifies" computation and its two surfaces — the client card's Recognitions block and a monthly `#/raffle` view. **Writes nothing**: no proxy call, no `PROXY_VERSION` bump, no `ALLOWED_STAGES` check (that moves to the first write chunk). The draw, the snapshot, and the parallel post-draw tasks are next.
@@ -56,13 +83,6 @@ It failed **safe** for the raffle — unclear is not a Yes, so nobody could wron
 | `No, I'd rather not` | No | No |
 
 Every closed option classifies; genuine free text (`"maybe later"`) still flags for review, which is the branch's real job.
-
-**Validated live, on the branch that was actually broken.** The form was resubmitted with `"Not yet"` on the review question and **Event Log row 89** wrote `No ("Not yet")` — a clean No with the client's raw wording preserved, not an unclear flag. **Zero `Unclear answer` rows remain anywhere in the log.**
-
-Two behaviours neither D-098 nor D-099 had exercised live got confirmed in passing:
-
-- **Non-idempotency works as designed** — the resubmission appended three fresh rows (88–90). Nothing overwritten, nothing deduped.
-- **Latest-wins got its first real test** — row 86 says `Yes` and row 89 says `No` for the same `(email, cycle, Stage)`. The newest answer is what counts; the older one stays in the timeline as history. The raffle view picked the change up with no code change: Cameron moved from 2/3 to 1/3.
 
 **The lesson worth keeping.** D-098's live validation answered **"Yes" to every question**, so the negative branch was never executed. A passing happy-path test is not coverage of the branch that matters — and the option strings should have been read off the live form from the start, which is exactly what found this.
 
