@@ -48,20 +48,27 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | Rule | Frontend | Apps Script |
 |---|---|---|
 | fold, ladder, classifiers | `dashboard/state-builder.js` | `apps-script/Digest.gs` |
-| the seven task ladders | `dashboard/flows.js` | `apps-script/Digest.gs` |
+| the nine task ladders | `dashboard/flows.js` | `apps-script/Digest.gs` |
 | Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
 | task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` |
+| raffle: conditions, answer classifier | `dashboard/raffle.js` | `apps-script/Digest.gs` `dRaffleConditions_` / `dClassify_` |
+| raffle: cohort month + `month moved` | `dashboard/raffle.js` `monthOf` | `apps-script/Digest.gs` `dMonthOf_` |
+| raffle: eligibility + draw-due state | `dashboard/raffle.js` `eligibleFrom` / `build` | `apps-script/Digest.gs` `dEligibleFrom_` / `dRaffle_` |
+| raffle: the two parallel post-draw tasks | `dashboard/flows.js` + `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |
 | Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |
 
-`Digest.gs` `selfCheck()` prints its stage counts and task total so drift is
-detectable rather than silent. Run it after any such change.
+`Digest.gs` `selfCheck()` prints its stage counts, task total, and the raffle
+counts (month · cohort · qualifying · eligible · draw state · winner) so drift is
+detectable rather than silent, and runs `dSelfCheckRaffle_()` for the structural
+invariants. Run it after any such change and compare against
+`RaffleFold.build(state)` in the browser console.
 
 ## Build phases
 
 1. **Foundation** ✅ — repo, Pages, governance docs, read path, write path, Settings tab, identity resolution, the event-log fold.
 2. **Pipeline + client card** ✅ — the board (stage computed from events), the client card with its five blocks, notes into the timeline.
 3. **Action queue + alerts** ✅ — per-person queue, alert conditions per stage, manual-review flags as tasks, content channel. The Slack digest is written but NOT wired (see DASHBOARD-SYSTEM.md §10.5).
-4. Calendar + buffer
-5. Recognitions (raffle, reviews, podcast / client of the month)
+4. **Calendar + buffer** ✅ — the week strip, the two buffer metrics, week assignment (column G).
+5. Recognitions — **raffle ✅ (compliance + the draw, with the Digest mirror)**; reviews and podcast / client of the month not started.
 
 Build one phase at a time and stop for testing before starting the next.

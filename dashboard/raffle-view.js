@@ -1,9 +1,6 @@
 /**
  * Testimonial Dashboard — Raffle view (Phase 5)
  *
- * ⚠️ READ-ONLY. Every control here navigates; none writes. The draw button,
- * the snapshot, and the "move to another month" control are the next chunk.
- *
  * The raffle is its own section and is never folded into the pipeline or the
  * reviews view (design principle §2: keep apart what belongs apart). It shares
  * the self-report EVENT with the future reviews view — one event, two readers,
@@ -13,6 +10,26 @@
  * So it has to be honest about three different kinds of "not in the draw" —
  * genuinely not qualified, waiting on a form that never arrived, and an answer
  * nobody could read — because only the third is anyone's fault.
+ *
+ * ---------------------------------------------------------------------------
+ * TWO WRITES LIVE HERE, both confirmed first
+ * ---------------------------------------------------------------------------
+ *   MOVE TO ANOTHER MONTH  → `Raffle — month moved`   (D-100)
+ *   CONFIRM THE WINNER     → `Raffle — winner confirmed` + the snapshot
+ *
+ * Both get a confirmation dialog, and both belong to the narrow category the
+ * dialog exists for (D-093): the move changes which month someone competes in,
+ * and the winner cannot be un-confirmed at all.
+ *
+ * The two POST-DRAW TASKS are deliberately NOT actioned here. They are real
+ * tasks with real owners (Miguel and Gaby) and they live in the queue like
+ * every other task — this view shows their state and says where to act. One
+ * write path per action, not two.
+ *
+ * RE-DRAWING: the pick happens on click and is shown in the dialog, so
+ * cancelling and clicking again produces a different name. That is inherent to
+ * "system proposes, human confirms" and is left visible rather than hidden —
+ * the log records only the confirmed draw, and the dialog says so.
  */
 (function (root) {
   "use strict";
@@ -109,7 +126,126 @@
       '<div class="rf__state">' +
         (e.qualifies ? '<span class="badge badge--ok">qualifies</span>'
                      : '<span class="badge badge--muted">' + comp.met + "/" + comp.total + "</span>") +
+        moveBtn(e) +
       "</div></li>";
+  }
+
+  /**
+   * "Move to another month" (D-100).
+   *
+   * Exists for one real case the automatic cohort rule cannot cover: a client
+   * says yes, sends nothing that week, and sends it two weeks later. The team
+   * already makes that call by hand — today it lives only in Gaby's head, and
+   * this is what turns it into an attributed row.
+   *
+   * Hidden once someone has won: their cohort is part of a settled record.
+   */
+  function moveBtn(e) {
+    if (e.personWon) return "";
+    return '<button class="btn btn--sm rf__move" data-move="' + esc(e.key) + '">Move to another month</button>';
+  }
+
+  /* ==========================================================================
+   * The draw
+   * ========================================================================== */
+
+  function who(e) {
+    return esc(e.name) + (e.cycle > 1 ? " (part " + e.cycle + ")" : "");
+  }
+
+  /** The two post-draw tasks (D-080) — parallel, neither blocks the other. */
+  function postDraw(r) {
+    var w = r.winner;
+    function line(done, owner, label, where) {
+      return '<li class="pd' + (done ? " pd--done" : "") + '">' +
+        '<span class="pd__m">' + (done ? "✓" : "○") + "</span>" +
+        "<strong>" + esc(owner) + "</strong> — " + esc(label) +
+        '<div class="sub">' + (done ? "Done." : esc(where)) + "</div></li>";
+    }
+    return '<ul class="pdlist">' +
+      line(w.monthAdded, "Miguel", "add one extra month in the Master Sheet and leave the note",
+           "Open in Miguel's queue. The dashboard never writes to the Master Sheet.") +
+      line(w.messagesSent, "Gaby", "send the winner message and the non-winner thank-yous",
+           "Open in Gaby's queue.") +
+      "</ul>" +
+      '<p class="sub">Both fired at the same time and neither waits for the other (D-080). ' +
+      'Mark them done from <a href="#/queue">the queue</a>, where every other task is actioned.</p>';
+  }
+
+  function drawPanel(r) {
+    var head = "<h3>The draw — " + esc(r.monthLabel) + "</h3>";
+
+    if (r.doubleWinner) {
+      return '<section class="section">' + head +
+        '<div class="banner banner--bad"><strong>Two winners are recorded for ' + esc(r.monthLabel) +
+        ".</strong> The draw cannot produce this, so it means a double write or a hand-edited log. " +
+        "The log is append-only, so nothing here can be deleted: " +
+        r.doubleWinner.map(who).join(" and ") + ". Ask Bernardo before acting on either.</div></section>";
+    }
+
+    /* ---- already drawn ---- */
+    if (r.drawState === "done") {
+      var w = r.winner;
+      var by = w.winnerEvent ? root.StateBuilder.actorOf(w.winnerEvent) : "";
+      return '<section class="section">' + head +
+        '<div class="winner">' +
+          '<div class="winner__l">Winner</div>' +
+          '<a class="winner__n" href="#/client/' + encodeURIComponent(w.key) + '">' + who(w) + "</a>" +
+          '<div class="sub">' + esc(w.email) + (by ? " · confirmed by " + esc(by) : "") + "</div>" +
+        "</div>" +
+        '<details class="snap"><summary>The snapshot taken at the draw</summary>' +
+          "<p>Who qualified on the day is frozen in the event text, so a later change to " +
+          "anyone's preferences form cannot alter the record.</p>" +
+          "<pre>" + esc(w.winnerEvent ? w.winnerEvent.event : "") + "</pre>" +
+        "</details>" +
+        postDraw(r) +
+        '<p class="sub">A confirmed winner cannot be un-confirmed today — the log is append-only ' +
+        "and no correction event exists yet (D-093, open).</p>" +
+        "</section>";
+    }
+
+    /* ---- nobody eligible yet ---- */
+    if (r.drawState === "waiting") {
+      var whyNot;
+      if (!r.entries.length) {
+        whyNot = "No testimonial entered the pipeline in " + esc(r.monthLabel) + ".";
+      } else if (!r.qualifying.length) {
+        whyNot = "Nobody in this month's cohort meets all three conditions yet.";
+      } else {
+        whyNot = "Everyone who qualifies this month has already won a raffle before, " +
+                 "so there is nobody left to draw from.";
+      }
+      return '<section class="section">' + head +
+        '<p class="empty">' + whyNot + " Nothing to draw.</p>" + "</section>";
+    }
+
+    /* ---- ready to draw ---- */
+    var late = r.drawState === "overdue"
+      ? '<div class="banner banner--warn"><strong>' + esc(r.monthLabel) +
+        " is over and no winner was drawn.</strong></div>"
+      : "";
+
+    var excluded = r.excludedPriorWin.length
+      ? '<p class="sub">Not in the draw despite qualifying: ' +
+        r.excludedPriorWin.map(function (e) {
+          return "<strong>" + who(e) + "</strong>";
+        }).join(", ") + " — already won a raffle before." +
+        (r.excludedPriorWin.some(function (e) { return e.personWonCycle !== e.cycle; })
+          ? " (On another part of their testimonial, so the win is theirs as a person.)" : "") +
+        "</p>"
+      : "";
+
+    return '<section class="section">' + head + late +
+      '<p class="section__sub">' + r.eligible.length + " eligible — qualifies on all three conditions, " +
+      "entered in " + esc(r.monthLabel) + ", and has never won before. " +
+      "The system draws; you confirm.</p>" +
+      '<ol class="elig">' + r.eligible.map(function (e) {
+        return "<li>" + who(e) + ' <span class="sub">' + esc(e.email) + "</span></li>";
+      }).join("") + "</ol>" +
+      excluded +
+      '<div class="rowbtns"><button id="rfDraw" class="btn btn--ok">Run the draw</button></div>' +
+      '<div id="rfResult" class="result"></div>' +
+      "</section>";
   }
 
   /* ---------- Other months, so an empty list is never a dead end ---------- */
@@ -144,14 +280,160 @@
     }
 
     return header(r) +
+      drawPanel(r) +
       '<section class="section">' + body +
-      '<p class="section__sub raffle__foot">Compliance is <strong>live</strong>, not snapshotted — ' +
-      "it reflects the log right now. The snapshot is taken at the draw, and what qualified on the day " +
-      "of the draw is what counts. The draw itself is deliberately manual and is not built yet.</p>" +
+      '<p class="section__sub raffle__foot">Compliance in this list is <strong>live</strong> — ' +
+      "it reflects the log right now, which is what a working list needs. The record is the " +
+      "opposite: the snapshot taken at the draw freezes who qualified on the day, and that is " +
+      "what counts afterwards.</p>" +
       "</section>";
   }
 
-  function wire() { /* read-only: nothing to wire */ }
+  /* ==========================================================================
+   * Wiring — the two writes
+   * ========================================================================== */
+
+  var wired = false;
+  var ctx = { r: null };
+
+  function wire(state) {
+    ctx.r = root.RaffleFold.build(state);
+    if (wired) return;
+    var host = document.getElementById("app");
+    if (!host) return;
+    wired = true;
+
+    host.addEventListener("click", function (ev) {
+      var mv = ev.target.closest ? ev.target.closest("[data-move]") : null;
+      if (mv) { onMove(mv, mv.getAttribute("data-move")); return; }
+
+      var draw = ev.target.closest ? ev.target.closest("#rfDraw") : null;
+      if (draw) { onDraw(draw); return; }
+    });
+  }
+
+  function find(key) {
+    var all = (ctx.r && ctx.r.entries) || [];
+    for (var i = 0; i < all.length; i++) if (all[i].key === key) return all[i];
+    return null;
+  }
+
+  function write(btn, o) {
+    btn.disabled = true;
+    root.Dialog.feedback(btn, "Writing…", "");
+    return root.EventWriter.appendEvent(o)
+      .then(function (res) {
+        root.Dialog.feedback(btn, res.message, res.verified ? "ok" : "warn");
+        btn.disabled = false;
+        if (res.verified && root.TDApp) root.TDApp.reload();
+      })
+      .catch(function (err) {
+        root.Dialog.feedback(btn, err.message, "bad");
+        btn.disabled = false;
+      });
+  }
+
+  /* ---------- Move to another month ---------- */
+
+  function monthOptions(r) {
+    var F = root.RaffleFold;
+    var out = [], seen = {};
+    function push(k) {
+      if (!k || k === r.month || seen[k]) return;
+      seen[k] = true;
+      out.push({ value: k, label: F.monthLabel(k) });
+    }
+    push(F.nextMonth(r.month));
+    push(F.nextMonth(F.nextMonth(r.month)));
+    push(F.currentMonth());           // pull someone forward out of a past cohort
+    out.sort(function (a, b) { return a.value < b.value ? -1 : 1; });
+    return out;
+  }
+
+  function onMove(btn, key) {
+    var e = find(key);
+    if (!e) return;
+    var r = ctx.r;
+    var opts = monthOptions(r);
+    if (!opts.length) {
+      root.Dialog.feedback(btn, "No other month to move this client to.", "warn");
+      return;
+    }
+
+    root.Dialog.confirm({
+      title: "Move " + e.name + " to another month's raffle",
+      body: "This changes which month " + e.name + " competes in. It is written to the event log " +
+            "as an attributed row, so the decision is recorded rather than remembered.",
+      consequences: [
+        "Leaves the " + root.RaffleFold.monthLabel(r.month) + " raffle immediately.",
+        "Appears in the chosen month's raffle, marked as moved and by whom.",
+        "Does not change anything about their testimonial or their pipeline stage.",
+        "The log is append-only: this cannot be deleted, only superseded by another move."
+      ],
+      select: { label: "Move to", placeholder: "— choose a month —", options: opts },
+      confirmLabel: "Move",
+      tone: "normal"
+    }).then(function (res) {
+      if (!res) return;
+      var target = res.selected;
+      if (!root.RaffleFold.isMonthKey(target)) {
+        root.Dialog.feedback(btn, "That is not a valid month.", "bad");
+        return;
+      }
+      write(btn, {
+        email: e.email, cycle: e.cycle,
+        stage: CFG.STAGES.RAFFLE_MONTH_MOVED,
+        event: root.RaffleFold.moveText(r.month, target)
+      });
+    });
+  }
+
+  /* ---------- Run the draw, then confirm the winner ---------- */
+
+  function onDraw(btn) {
+    var r = ctx.r;
+    var eligible = r.eligible || [];
+    if (!eligible.length) {
+      root.Dialog.feedback(btn, "Nobody is eligible, so there is nothing to draw.", "warn");
+      return;
+    }
+
+    // The pick happens here, before the dialog, so what she confirms is what
+    // gets written. Cancelling writes nothing and draws again next click.
+    var winner = root.RaffleFold.drawFrom(eligible);
+    if (!winner) {
+      root.Dialog.feedback(btn, "The draw returned nobody. Nothing was written.", "bad");
+      return;
+    }
+
+    var snapshot = root.RaffleFold.snapshotText(r.month, winner, eligible);
+
+    root.Dialog.confirm({
+      title: "Winner drawn: " + winner.name,
+      body: "Drawn at random from the " + eligible.length + " eligible " +
+            (eligible.length === 1 ? "entry" : "entries") + " in " +
+            root.RaffleFold.monthLabel(r.month) + ". Nothing has been written yet — " +
+            "confirming is what records it.",
+      consequences: [
+        "Freezes who qualified today into the event, as the permanent record.",
+        "Fires two tasks at once: Miguel adds the extra month in the Master Sheet, Gaby sends the messages.",
+        "Cannot be un-confirmed — the log is append-only and no correction event exists yet.",
+        "Cancel and draw again if you want a different pick. Only a confirmed draw is ever recorded."
+      ],
+      confirmLabel: "Confirm " + winner.name + " as the winner",
+      tone: "danger"
+    }).then(function (res) {
+      if (!res) {
+        root.Dialog.feedback(btn, "Cancelled. Nothing was written — click again to draw afresh.", "");
+        return;
+      }
+      write(btn, {
+        email: winner.email, cycle: winner.cycle,
+        stage: CFG.STAGES.RAFFLE_WINNER,
+        event: snapshot
+      });
+    });
+  }
 
   root.RaffleView = { render: render, wire: wire };
 })(typeof window !== "undefined" ? window : this);

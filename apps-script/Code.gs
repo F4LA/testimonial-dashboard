@@ -28,8 +28,9 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    1 — appendEvent
  *    2 — + requestFanout (the fan-out bridge)
  *    3 — + the v2 task-model Stage strings (D-090)
- *    4 — + column G "Week" for scheduling (Phase 4) */
-var PROXY_VERSION = 4;
+ *    4 — + column G "Week" for scheduling (Phase 4)
+ *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk) */
+var PROXY_VERSION = 5;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -104,6 +105,9 @@ var ALLOWED_STAGES = [
   'Raffle — winner confirmed',
   'Raffle — messages sent',
   'Raffle — month added',
+  // The manual cohort override (D-100). Event text must carry the target
+  // month as YYYY-MM — that is what RaffleFold.monthOf() parses.
+  'Raffle — month moved',
   'Review — self-reported',
   'Review — confirmed',
   'Review — unmatched',

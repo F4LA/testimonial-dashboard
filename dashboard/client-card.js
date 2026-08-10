@@ -258,9 +258,28 @@
         "</td></tr>";
     }).join("");
 
-    var verdict = comp.qualifies
-      ? '<span class="badge badge--ok">qualifies for the raffle</span>'
-      : '<span class="badge badge--muted">' + comp.met + "/" + comp.total + " — does not qualify yet</span>";
+    /* A past win outranks live compliance in the heading.
+       Without this the card can say "2/3 — does not qualify yet" directly above
+       a recorded raffle win, which is the same kind of contradiction as the two
+       review signals (fixed in 089dd9e): both statements are true, but read
+       together they look like a bug. The win is a frozen record of a past
+       month; the conditions below are live and about today. */
+    var wonEv = r.raffleWinner;
+    var verdict = wonEv
+      ? '<span class="badge badge--ok">won the raffle</span>'
+      : comp.qualifies
+        ? '<span class="badge badge--ok">qualifies for the raffle</span>'
+        : '<span class="badge badge--muted">' + comp.met + "/" + comp.total + " — does not qualify yet</span>";
+
+    var wonNote = wonEv
+      ? '<p class="section__sub"><strong>Won the raffle on ' + esc(fmtWhen(wonEv.ts)) + ".</strong> " +
+        "That is settled and frozen in the snapshot below. The three conditions underneath are " +
+        "<strong>live</strong> and describe today, so they can read differently from the day of the draw — " +
+        "and a past win is never re-opened by a later form answer. " +
+        "The person does not enter another raffle." +
+        '</p><details class="snap"><summary>The snapshot taken at the draw</summary><pre>' +
+        esc(wonEv.event || "") + "</pre></details>"
+      : "";
 
     var raffleNote = comp.needsReview
       ? '<p class="section__sub"><strong>' + esc(comp.unclear[0].label) + ' came back as "' +
@@ -290,6 +309,7 @@
       '<p class="section__sub">Three conditions, computed live. The review condition reads the client\'s ' +
       "<strong>self-report</strong>, never a confirmation (a real reviewer who cannot be matched by name is " +
       "never excluded). Podcast consent is not a condition.</p>" +
+      wonNote +
       raffleNote +
       '<table class="table"><tbody>' + condRows + "</tbody></table>" +
       '<p class="section__sub"><a href="#/raffle">See everyone in ' +
@@ -307,7 +327,12 @@
       '<table class="table"><tbody>' +
         reviewSelfRow +
         line("Review — confirmed (audit, manual)", r.reviewConfirmed, "not confirmed") +
-        line("Raffle — winner",        r.raffleWinner,       "—") +
+        // Deliberately not `line()`: the winner event holds the whole draw
+        // snapshot, which is a paragraph, and it is already shown above.
+        "<tr><td>Raffle — winner</td><td>" +
+          (wonEv ? '<span class="state state--received">yes</span><div class="sub">' +
+                   esc(fmtWhen(wonEv.ts)) + "</div>"
+                 : '<span class="sub">—</span>') + "</td></tr>" +
         line("Client of the month",    r.cotmWinner,         "—") +
         "<tr><td>Podcast</td><td>" +
           (podcastState ? '<span class="state state--received">' + esc(podcastState) + "</span>"

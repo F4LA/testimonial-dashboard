@@ -25,10 +25,20 @@
  *   fold: Collecting = video received OR uploaded     state-builder.js §4.4
  *   gate: video + Everfit + photos; Meet/Loom never   client-card.js collectionLock
  *   rules: owners and thresholds                      alerts.js
+ *   raffle: the three conditions + answer classifier  raffle.js conditionsFor/classify
+ *   raffle: cohort month + the "month moved" override raffle.js monthOf
+ *   raffle: eligibility and the draw-due state        raffle.js eligibleFrom/build
+ *   raffle: the two parallel post-draw tasks          flows.js flowRaffleMonth/Messages
+ *   raffle: the month-level draw task                 alerts.js raffleTasks
  *
  * If you change any of those, change them here too. `selfCheck()` compares
  * this file's stage counts against what the dashboard shows, so drift is
  * detectable rather than silent.
+ *
+ * The raffle half is the newest and the easiest to get subtly wrong, so
+ * `selfCheck()` prints its eligible / draw-due / raffle-task counts explicitly
+ * and re-asserts the two invariants that matter: a non-qualifier can never be
+ * eligible, and podcast consent is never a condition (D-097).
  */
 
 /* ===================== Configuration — FILL THESE IN ===================== */
@@ -89,7 +99,22 @@ var D_S = {
   SCHED_EMAIL:       'Schedule — email scheduled',
   PUBLISHED:         'Publish — live',
   DECLINED:          'Pipeline — declined',
-  DROPPED:           'Pipeline — dropped'
+  DROPPED:           'Pipeline — dropped',
+
+  /* --- raffle (Phase 5) --- */
+  // Engine-owned, written by the preferences-form bridge (D-098). The review
+  // condition reads THIS, never the dashboard-writable 'Review — self-reported'
+  // (D-066/D-098), or a person could hand-enter a self-report and open the
+  // raffle. D_PODCAST_CONSENT is named ONLY so dSelfCheckRaffle_ can prove it is
+  // absent from the conditions (D-097).
+  PREFS_PHOTO:       'Preferences — photo permission',
+  PREFS_REVIEW:      'Preferences — review self-reported',
+  PREFS_PODCAST:     'Preferences — podcast consent',
+  // Dashboard-owned.
+  RAFFLE_WINNER:     'Raffle — winner confirmed',
+  RAFFLE_MESSAGES:   'Raffle — messages sent',
+  RAFFLE_MONTH_ADDED:'Raffle — month added',
+  RAFFLE_MONTH_MOVED:'Raffle — month moved'
 };
 var D_PIECES = [
   { key: 'carousel',    label: 'Carousel',                  owner: 'Agent',  stage: 'Production — carousel' },
@@ -102,6 +127,154 @@ var D_PIECES = [
 function dNorm_(s) {
   return String(s || '').replace(/[-‐‑‒–—―−]/g, '-')
     .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/* ===================== Raffle mirror (D-088) =====================
+ * Mirrors dashboard/raffle.js. Every function here has a named counterpart
+ * there; keep the pairs together when either side changes.
+ * ================================================================= */
+
+/** Mirror of raffle.js `classify`. met: true | false | null (null = unclear).
+ *  The second branch recovers pre-D-099 rows where the bridge misread
+ *  "Not yet" and wrote it as an unclear answer. */
+function dClassify_(detail) {
+  var d = String(detail == null ? '' : detail).trim();
+  if (!d) return { met: null, raw: '' };
+  var quoted = /"([^"]*)"/.exec(d);
+  var raw = quoted ? quoted[1].trim() : d;
+  var norm = /^(Yes|No)\b/i.exec(d);
+  if (norm) return { met: /^y/i.test(norm[1]), raw: raw };
+  if (/^y/i.test(raw)) return { met: true, raw: raw };
+  if (/^n/i.test(raw)) return { met: false, raw: raw };
+  return { met: null, raw: raw };
+}
+
+/** Mirror of raffle.js `monthKey` — the sheet's timezone, not the server's. */
+function dMonthKey_(ms) {
+  if (!isFinite(ms)) return '';
+  var d = new Date(ms + TZ_OFFSET_MIN * 60000);
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2);
+}
+
+function dIsMonthKey_(s) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || '')); }
+
+function dCurrentMonth_() { return dMonthKey_(Date.now()); }
+
+function dMonthIsPast_(key) { return dIsMonthKey_(key) && key < dCurrentMonth_(); }
+
+/**
+ * Mirror of raffle.js `conditionsFor` — the THREE conditions (D-008).
+ * Condition 2 has no event of its own: it is the client-video signal the fold
+ * already computed, so the raffle can never disagree with the board about
+ * whether the video is in.
+ */
+function dRaffleConditions_(L, videoInput, arrived) {
+  function st(ev) {
+    if (!ev) return 'missing';
+    var c = dClassify_(ev.event);
+    if (c.met === true) return 'met';
+    if (c.met === false) return 'not-met';
+    return 'unclear';
+  }
+  var photoEv = L(D_S.PREFS_PHOTO);
+  var reviewEv = L(D_S.PREFS_REVIEW);
+  var videoIn = arrived(videoInput.state);
+
+  return [
+    { key: 'photo', label: 'Photo permission', state: st(photoEv),
+      stages: [D_S.PREFS_PHOTO] },
+    { key: 'questionnaire', label: 'Questionnaire / testimonial',
+      state: videoIn ? 'met' : (videoInput.state === 'flagged' ? 'unclear' : 'missing'),
+      stages: [D_S.ENGINE_VIDEO, D_S.VIDEO_UPLOADED] },
+    { key: 'review', label: 'Google review (self-reported)', state: st(reviewEv),
+      stages: [D_S.PREFS_REVIEW] }
+  ];
+}
+
+/** Mirror of raffle.js `compliance`. */
+function dCompliance_(conds) {
+  var met = 0, unclear = 0;
+  conds.forEach(function (c) {
+    if (c.state === 'met') met++;
+    if (c.state === 'unclear') unclear++;
+  });
+  return { conditions: conds, met: met, total: conds.length,
+           qualifies: met === conds.length, needsReview: unclear > 0 };
+}
+
+/**
+ * Mirror of raffle.js `monthOf` — COHORT BY ENTRY (D-100), with the manual
+ * override honoured. Cohort-by-entry rather than "the month they qualified",
+ * because qualification is unstable under latest-wins: a resubmitted form in
+ * September would silently move a client out of August, possibly after the
+ * draw already ran.
+ */
+function dMonthOf_(L, firstTs) {
+  var moved = L(D_S.RAFFLE_MONTH_MOVED);
+  if (moved) {
+    var m = /(\d{4}-\d{2})/.exec(String(moved.event || ''));
+    if (m && dIsMonthKey_(m[1])) {
+      return { month: m[1], moved: true, from: dMonthKey_(firstTs) };
+    }
+  }
+  return { month: dMonthKey_(firstTs), moved: false };
+}
+
+/** Mirror of raffle.js `eligibleFrom`. Person-level prior-win exclusion. */
+function dEligibleFrom_(entries) {
+  return entries.filter(function (e) { return e.qualifies && !e.personWon; });
+}
+
+/**
+ * Mirror of raffle.js `build`'s draw half: the month, its cohort, the eligible
+ * set, the winner and the draw-due state.
+ */
+function dRaffle_(list, settings) {
+  var active = String((settings && settings.activeMonth) || '').trim();
+  var month = dIsMonthKey_(active) ? active : dCurrentMonth_();
+
+  // Prior wins by PERSON, across every cycle — a cycle-1 win excludes cycle 2.
+  var wonBy = {};
+  list.forEach(function (t) {
+    if (t.raffleWon) wonBy[t.email] = true;
+  });
+
+  var entries = list.map(function (t) {
+    return {
+      email: t.email, cycle: t.cycle, key: t.key,
+      month: t.raffleMonth, moved: t.raffleMoved,
+      qualifies: t.raffle.qualifies, needsReview: t.raffle.needsReview,
+      alreadyWon: !!t.raffleWon, personWon: !!wonBy[t.email],
+      wonTs: t.raffleWon ? t.raffleWon.ts : NaN,
+      monthAdded: !!t.raffleMonthAdded, messagesSent: !!t.raffleMessagesSent
+    };
+  });
+
+  var inMonth = entries.filter(function (e) { return e.month === month; });
+  var eligible = dEligibleFrom_(inMonth);
+
+  // Ordered by WHEN the win was confirmed, matching raffle.js — so the two
+  // implementations name the same winner even in the impossible case where two
+  // are recorded. Unordered, each would pick by its own list order.
+  var winners = inMonth.filter(function (e) { return e.alreadyWon; })
+    .sort(function (a, b) {
+      var at = isFinite(a.wonTs) ? a.wonTs : Infinity;
+      var bt = isFinite(b.wonTs) ? b.wonTs : Infinity;
+      return at - bt;
+    });
+
+  var drawState = winners.length ? 'done'
+                : (eligible.length ? (dMonthIsPast_(month) ? 'overdue' : 'due')
+                                   : 'waiting');
+
+  return {
+    month: month, entries: inMonth, eligible: eligible,
+    qualifying: inMonth.filter(function (e) { return e.qualifies; }),
+    winner: winners[0] || null,
+    doubleWinner: winners.length > 1 ? winners : null,
+    drawState: drawState,
+    drawDue: drawState === 'due' || drawState === 'overdue'
+  };
 }
 
 /* ===================== Read + fold ===================== */
@@ -240,12 +413,26 @@ function dFold_() {
     ladder.forEach(function (r) { if (r[1]) { stage = r[0]; at = r[1].ts; } });
     if (L(D_S.DECLINED) || L(D_S.DROPPED)) stage = 'closed';
 
+    /* --- raffle (mirror of raffle.js; D-088) --- */
+    // Events are ordered by (timestamp, row), so the first is the earliest —
+    // the same "cohort by entry" anchor the frontend uses.
+    var firstTs = evs.length ? evs[0].ts : NaN;
+    var rMonth = dMonthOf_(L, firstTs);
+    var rComp = dCompliance_(dRaffleConditions_(L, inputs.video, arrived));
+
     out.push({
       email: evs[0].email, cycle: evs[0].cycle, key: k,
       stage: stage || 'indeterminate', at: at,
       hours: isFinite(at) ? (Date.now() - at) / 36e5 : NaN,
       inputs: inputs, arrived: arrived, pieces: pieces, piecesDone: done,
       complete: !!L(D_S.COMPLETE),
+      raffle: rComp,
+      raffleMonth: rMonth.month,
+      raffleMoved: rMonth.moved,
+      raffleWon: L(D_S.RAFFLE_WINNER),
+      raffleMonthAdded: !!L(D_S.RAFFLE_MONTH_ADDED),
+      raffleMessagesSent: !!L(D_S.RAFFLE_MESSAGES),
+      raffleEntryTs: firstTs,
       schedPost: !!L(D_S.SCHED_POST), schedEmail: !!L(D_S.SCHED_EMAIL),
       flags: ['meet', 'loom', 'coachForm', 'video', 'everfit', 'photos'].filter(function (kk) {
         return inputs[kk].state === 'flagged';
@@ -327,7 +514,42 @@ function dTasks_() {
     if (!roster.byEmail[t.email]) {
       add('Gaby', 'dm', 'Resolve the identity for ' + t.email, 'Not in the roster.', 'review');
     }
+
+    /* --- raffle post-draw, PARALLEL (D-080) ---------------------------------
+     * Mirrors flows.js flowRaffleMonth / flowRaffleMessages. Two independent
+     * items, never chained: the old SOP sent the winner message only after the
+     * contract was updated, and D-080 corrects that. No threshold — they are
+     * immediate on confirmation and no waiting period is defined in Settings. */
+    if (t.raffleWon && !t.raffleMonthAdded) {
+      add('Miguel', 'dm', "Add " + name + "'s extra raffle month in the Master Sheet",
+          'Won the ' + t.raffleMonth + ' raffle. The dashboard never writes to the Master Sheet, ' +
+          'so this is done by hand. Leave the note too.', 'due');
+    }
+    if (t.raffleWon && !t.raffleMessagesSent) {
+      add('Gaby', 'dm', 'Send the ' + t.raffleMonth + ' raffle messages: ' + name + ' won, and thank the rest',
+          'Winner message plus the thank-you to everyone else who entered, through Everfit.', 'due');
+    }
   });
+
+  /* --- the draw itself: a MONTH-level task, not a per-client one -----------
+   * Mirrors alerts.js raffleTasks. No threshold: "eligible entries exist and
+   * no winner yet" is a fact, and a month that ended undrawn is late by the
+   * calendar. Neither is a timing policy, so neither needs a Settings key. */
+  var raf = dRaffle_(list, st);
+  if (raf.drawDue) {
+    add('Gaby', 'dm',
+        'Run the ' + raf.month + ' raffle draw — ' + raf.eligible.length +
+          ' eligible ' + (raf.eligible.length === 1 ? 'entry' : 'entries'),
+        (raf.drawState === 'overdue' ? raf.month + ' is over and no winner was drawn. ' : '') +
+        'The draw is manual: open the raffle view, draw, and confirm. Confirming freezes who ' +
+        'qualified today and fires Miguel\'s and Gaby\'s tasks at once.',
+        raf.drawState === 'overdue' ? 'overdue' : 'due');
+  }
+  if (raf.doubleWinner) {
+    add('Bernardo', 'dm', 'Two raffle winners are recorded for ' + raf.month,
+        'The draw cannot produce this, so it means a double write or a hand-edited log. ' +
+        'Nothing can be deleted (append-only).', 'review');
+  }
 
   return tasks;
 }
@@ -426,16 +648,103 @@ function sendDailyDigest() {
 }
 
 /** Compare this file's fold against what the dashboard shows. Read-only. */
+/**
+ * Structural assertions on the raffle mirror. These do not compare counts —
+ * they prove the RULES here still say what raffle.js says, because a count can
+ * match by luck while the rule underneath is wrong.
+ */
+function dSelfCheckRaffle_() {
+  var problems = [];
+
+  function L0() { return null; }
+  var probe = dRaffleConditions_(L0, { state: 'missing' }, function (s) {
+    return s === 'received' || s === 'partial';
+  });
+
+  if (probe.length !== 3) {
+    problems.push('the raffle has exactly three conditions (D-008), found ' + probe.length);
+  }
+  probe.forEach(function (c) {
+    (c.stages || []).forEach(function (s) {
+      if (s === D_S.PREFS_PODCAST) {
+        problems.push('podcast consent is NOT a raffle condition (D-097) — found in "' + c.key + '"');
+      }
+      if (s === 'Review — self-reported' || s === 'Review — confirmed') {
+        problems.push('condition "' + c.key + '" reads a dashboard-writable review string; the ' +
+                      'raffle must read the engine-owned preferences event (D-066/D-098)');
+      }
+      if (s === 'Collection — client video link') {
+        problems.push('"Collection — client video link" means folder 03 was SHARED, not that the ' +
+                      'video arrived — reading it would qualify every invited client ("' + c.key + '")');
+      }
+    });
+  });
+
+  // Eligibility must be a subset of qualifying, and a prior winner is out.
+  var fake = [
+    { email: 'q@x',  qualifies: true,  personWon: false },
+    { email: 'nq@x', qualifies: false, personWon: false },
+    { email: 'pw@x', qualifies: true,  personWon: true }
+  ];
+  var got = dEligibleFrom_(fake).map(function (e) { return e.email; });
+  if (got.length !== 1 || got[0] !== 'q@x') {
+    problems.push('eligibility is not exactly "qualifies and has never won" — got [' + got.join(', ') + ']');
+  }
+
+  // The classifier's D-099 case: "Not yet" is a clean No, never unclear.
+  if (dClassify_('No ("Not yet")').met !== false) problems.push('"No (\\"Not yet\\")" must classify as No');
+  if (dClassify_('Unclear answer: "Not yet" — review manually').met !== false) {
+    problems.push('a pre-D-099 unclear row holding "Not yet" must still recover as No');
+  }
+  if (dClassify_('Yes ("Yes, done")').met !== true) problems.push('"Yes (...)" must classify as Yes');
+  if (dClassify_('Maybe later').met !== null) problems.push('an unreadable answer must be unclear, not a no');
+
+  // The month override must round-trip, or the button writes a row this
+  // mirror silently ignores while the frontend honours it.
+  var mv = dMonthOf_(function (s) {
+    return s === D_S.RAFFLE_MONTH_MOVED
+      ? { event: 'Moved to the 2026-09 raffle (from 2026-08)', ts: 0 } : null;
+  }, 0);
+  if (mv.month !== '2026-09' || !mv.moved) {
+    problems.push('the "Raffle — month moved" override did not read back as 2026-09 (D-100)');
+  }
+
+  return problems;
+}
+
 function selfCheck() {
+  var st = dReadSettings_();
   var list = dFold_(), byStage = {};
   list.forEach(function (t) { byStage[t.stage] = (byStage[t.stage] || 0) + 1; });
+
+  var raf = dRaffle_(list, st);
+  var tasks = dTasks_();
+  function n(pred) { return tasks.filter(pred).length; }
+
+  var problems = dSelfCheckRaffle_();
+
   var msg = ['=== DIGEST SELF-CHECK (read-only) ===',
              'testimonials: ' + list.length,
              'by stage: ' + JSON.stringify(byStage),
-             'tasks: ' + dTasks_().length,
+             'tasks: ' + tasks.length,
              '',
-             'These must match the dashboard. If they do not, the fold in this',
-             'file has drifted from dashboard/state-builder.js.'].join('\n');
+             '--- raffle (mirror of dashboard/raffle.js) ---',
+             'month: ' + raf.month + (dIsMonthKey_(String(st.activeMonth || '').trim())
+               ? ' (pinned by the activeMonth setting)' : ' (current month)'),
+             'cohort: ' + raf.entries.length,
+             'qualifying: ' + raf.qualifying.length,
+             'eligible: ' + raf.eligible.length,
+             'draw state: ' + raf.drawState,
+             'winner: ' + (raf.winner ? raf.winner.email + ' (cycle ' + raf.winner.cycle + ')' : 'none'),
+             'raffle tasks: ' + n(function (t) { return /raffle/i.test(t.title); }),
+             '',
+             'invariants: ' + (problems.length ? 'FAILED' : 'ok'),
+             problems.length ? '  - ' + problems.join('\n  - ') : '',
+             '',
+             'These must match the dashboard. If they do not, this file has',
+             'drifted from dashboard/state-builder.js, raffle.js, flows.js or',
+             'alerts.js. Compare against RaffleFold.build(state) in the browser',
+             'console: month, cohort, qualifying, eligible, drawState.'].join('\n');
   Logger.log(msg);
   return msg;
 }

@@ -117,7 +117,23 @@
         "Hey [Name], just wanted to follow up again! " +
         "Totally understand if you're busy, just checking if you're still planning to send in your testimonial. " +
         "Let me know either way, and thank you again!"
-    }
+    },
+
+    /* ---- Raffle · post-draw (D-080) ----------------------------------------
+     * Miguel's is an INTERNAL note on a contract record, so it is written here
+     * as plain fact. Gaby's two are CLIENT-FACING and the SOP templates were
+     * not available to this build, so they are declared with no text: the queue
+     * then says "no approved message exists yet" instead of putting invented
+     * words in Gaby's voice. Paste the SOP wording in and the buttons light up
+     * with no other change. */
+    raffleMonthAdd: {
+      source: "v2",
+      text:
+        "Raffle winner [month]: add one extra month to [Client]'s contract. " +
+        "Confirmed in the dashboard on the raffle draw for [month]."
+    },
+    raffleWinnerMessage: { source: "NONE", text: null },
+    raffleNonWinnerMessage: { source: "NONE", text: null }
   };
 
   /** Fill the placeholders. Missing values render as the placeholder itself,
@@ -500,7 +516,52 @@
     });
   }
 
-  var FLOWS = [flowOutreach, flowVideo, flowCoachForm, flowManualPulls, flowContent, flowApproval];
+  /* ======================================================================
+   * FLOW 8+9 · Raffle post-draw — Miguel and Gaby, in PARALLEL
+   *
+   * Two flows, not one ladder with two rungs, and that is the whole point:
+   * D-080 corrects the old SOP, which sent the winner message only after the
+   * contract was updated. They fire together and neither waits for the other,
+   * so a ladder would re-introduce exactly the chaining the decision removed.
+   * The walker's one-task-per-flow rule then lets both stand at once.
+   *
+   * hours: 0 — these are immediate on confirmation, with no approved waiting
+   * period to escalate against. No threshold is invented in code (hard rule 8);
+   * if chasing is wanted later it belongs in the Settings tab first.
+   * ====================================================================== */
+
+  function flowRaffleMonth(t, s, h, v) {
+    var won = h.last(S.RAFFLE_WINNER);
+    if (!won || h.has(S.RAFFLE_MONTH_ADDED)) return null;
+
+    return rung({
+      flow: "raffleMonth", rung: "addMonth", owner: "Miguel", hours: 0, anchor: won,
+      title: "Add " + v.Client + "'s extra raffle month in the Master Sheet.",
+      detail: "They won the " + v.month + " raffle. The month goes in the client Master Sheet, " +
+              "which the dashboard never writes to, so this one is done by hand. Leave the note too.",
+      template: "raffleMonthAdd",
+      actions: [{ label: "Month added", stage: S.RAFFLE_MONTH_ADDED,
+                  event: "Extra month added in the Master Sheet for the " + v.month + " raffle win" }]
+    });
+  }
+
+  function flowRaffleMessages(t, s, h, v) {
+    var won = h.last(S.RAFFLE_WINNER);
+    if (!won || h.has(S.RAFFLE_MESSAGES)) return null;
+
+    return rung({
+      flow: "raffleMessages", rung: "sendMessages", owner: "Gaby", hours: 0, anchor: won,
+      title: "Send the " + v.month + " raffle messages: " + v.Client + " won, and thank the rest.",
+      detail: "The winner message plus the thank-you to everyone else who entered. " +
+              "Both go out through Everfit.",
+      template: "raffleWinnerMessage",
+      actions: [{ label: "Messages sent", stage: S.RAFFLE_MESSAGES,
+                  event: "Winner and non-winner messages sent for the " + v.month + " raffle" }]
+    });
+  }
+
+  var FLOWS = [flowOutreach, flowVideo, flowCoachForm, flowManualPulls, flowContent, flowApproval,
+               flowRaffleMonth, flowRaffleMessages];
 
   /**
    * Evaluate every flow for one testimonial. At most one task per flow.
@@ -515,7 +576,10 @@
       coach: t.identity.coach || "the coach",
       Coach: t.identity.coach || "the coach",
       form: settings.coachFormUrl || "[form link — set coachFormUrl in Settings]",
-      date: roundDeadline(settings)
+      date: roundDeadline(settings),
+      // The raffle cohort month, from the raffle fold's own definition rather
+      // than re-derived here — there is one answer to "which month is this".
+      month: root.RaffleFold ? root.RaffleFold.monthOf(t).month : ""
     };
 
     var out = [];

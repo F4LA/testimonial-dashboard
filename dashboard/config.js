@@ -106,11 +106,10 @@
     RAFFLE_WINNER:            "Raffle — winner confirmed",
     RAFFLE_MESSAGES:          "Raffle — messages sent",
     RAFFLE_MONTH_ADDED:       "Raffle — month added",
-    // ⚠️ READ-ONLY TODAY (D-100). The raffle compliance view already honours
-    // this override so the monthly cohort is correct the moment the button
-    // ships — but nothing writes it yet, and it is NOT in the proxy's
-    // ALLOWED_STAGES. Before the first write: add it there and bump
-    // PROXY_VERSION. Event text must contain the target month as YYYY-MM.
+    // The manual cohort override (D-100). Written by the "move to next month"
+    // button in the raffle view; in the proxy's ALLOWED_STAGES since
+    // PROXY_VERSION 5. Event text must contain the target month as YYYY-MM —
+    // that is what RaffleFold.monthOf() parses back out.
     RAFFLE_MONTH_MOVED:       "Raffle — month moved",
 
     REVIEW_SELF_REPORTED:     "Review — self-reported",
@@ -160,7 +159,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 4,
+    EXPECTED_PROXY_VERSION: 5,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.

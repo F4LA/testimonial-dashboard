@@ -1,9 +1,41 @@
 /**
- * Testimonial Dashboard — Raffle compliance (Phase 5)
+ * Testimonial Dashboard — Raffle compliance + the draw (Phase 5)
  *
- * ⚠️ READ-ONLY. This module computes and returns; it writes nothing, touches
- * no proxy, and needs no ALLOWED_STAGES check. The draw, the snapshot, and the
- * post-draw tasks are the next chunk.
+ * This module still writes nothing itself — it computes and returns. What
+ * changed with the draw chunk is that its output now DRIVES writes (the move
+ * button, the winner confirmation, the two post-draw tasks), so the four
+ * `Raffle — …` strings must be in the proxy's ALLOWED_STAGES. `selfCheck()`
+ * asserts they are writable rather than trusting that they were added.
+ *
+ * ⚠️ MIRRORED IN `apps-script/Digest.gs` (D-088). The conditions, the cohort
+ * month, eligibility, the draw-due state and the two post-draw tasks are
+ * re-implemented there because a time trigger has no browser. Any change here
+ * must be made there in the same commit. `Digest.gs selfCheck()` prints its
+ * raffle counts so drift is an alarm, not a silent bug.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THE DRAW IS, AND WHAT IT DELIBERATELY IS NOT
+ * ---------------------------------------------------------------------------
+ * ELIGIBLE = qualifies on all three conditions ∧ in this month's cohort ∧ the
+ * PERSON has never won before. Cohort-only is the approved scope: the draw is
+ * not "everyone currently qualifying", which would let a client who entered in
+ * June win August's raffle (D-100 left this open; the draw chunk closes it).
+ *
+ * Eligibility is derived from `compliance()` — the SAME function the read-only
+ * view has always used. There is no second qualification rule anywhere, and
+ * `selfCheck()` proves eligibility can never contain a non-qualifier.
+ *
+ * THE DRAW PROPOSES, A HUMAN CONFIRMS. `drawFrom()` picks; nothing is written
+ * until Gaby confirms. Same pattern as the calendar dates (D-096).
+ *
+ * SNAPSHOT (spec §4.4). The winner event text freezes the month, the winner,
+ * the full eligible list and the winner's three conditions AS THEY READ ON THE
+ * DAY. Compliance is live everywhere else, which is right for a working view
+ * and wrong for a record — a client who edits their preferences form in
+ * September must not retroactively change who was eligible in August.
+ *
+ * NO UNDO (D-093, open). A confirmed winner cannot be un-confirmed: the log is
+ * append-only and no "Raffle — correction" string exists. Out of scope here.
  *
  * ---------------------------------------------------------------------------
  * THE THREE CONDITIONS — and the one thing that is not one
@@ -109,6 +141,20 @@
   function currentMonth() { return monthKey(root.TDClock.now()); }
 
   function isMonthKey(s) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || "")); }
+
+  /** The month after `key`. Used by the move button's default target. */
+  function nextMonth(key) {
+    var m = /^(\d{4})-(\d{2})$/.exec(String(key || ""));
+    if (!m) return "";
+    var y = +m[1], mo = +m[2] + 1;
+    if (mo > 12) { mo = 1; y += 1; }
+    return y + "-" + ("0" + mo).slice(-2);
+  }
+
+  /** Is `key` strictly before the current month? Drives "the draw is late". */
+  function monthIsPast(key) {
+    return isMonthKey(key) && key < currentMonth();
+  }
 
   /* ---------- Which month a testimonial belongs to ---------- */
 
@@ -221,6 +267,74 @@
     };
   }
 
+  /* ==========================================================================
+   * The draw
+   * ========================================================================== */
+
+  /**
+   * ELIGIBILITY — the one definition.
+   *
+   * Three independent filters, each with a different reason:
+   *   qualifies    — the three conditions (D-008). Read from `compliance()`.
+   *   in cohort    — this month's entries only (D-100, cohort-only scope).
+   *   never won    — the free month is a prize per PERSON, so a prior win
+   *                  excludes them across every cycle and every month.
+   *
+   * The person-level reading of "already won" is deliberate and is the one
+   * judgement call in this function. D-100 establishes that a part-2
+   * testimonial is a SEPARATE raffle subject, which settles which testimonial
+   * competes — but not whether someone can win a second free month. Excluding
+   * the person is the conservative reading: an over-broad exclusion costs
+   * someone one month in a monthly raffle, while an over-narrow one hands the
+   * same client a second free month, which is a contract change nobody
+   * decided. Flagged for Bernardo rather than settled silently.
+   */
+  function eligibleFrom(entries) {
+    return entries.filter(function (e) {
+      return e.qualifies && !e.personWon;
+    });
+  }
+
+  /**
+   * Pick one. `rnd` is injectable ONLY so the self-check and the test plan can
+   * drive it deterministically; production passes nothing and gets Math.random.
+   */
+  function drawFrom(eligible, rnd) {
+    if (!eligible || !eligible.length) return null;
+    var r = (typeof rnd === "function") ? rnd() : Math.random();
+    if (!isFinite(r) || r < 0) r = 0;
+    var i = Math.floor(r * eligible.length);
+    if (i >= eligible.length) i = eligible.length - 1;   // rnd() === 1
+    return eligible[i];
+  }
+
+  /**
+   * The frozen record written into the winner event (spec §4.4).
+   *
+   * Everything a later reader needs to answer "who was in this draw and why"
+   * without recomputing anything: the month, the winner, the full eligible
+   * list, and the winner's three conditions with the client's own words. The
+   * month is written as YYYY-MM so the record is machine-readable too.
+   */
+  function snapshotText(month, winner, eligible) {
+    function who(e) {
+      return e.name + " <" + e.email + ">" + (e.cycle > 1 ? " (part " + e.cycle + ")" : "");
+    }
+    var conds = winner.compliance.conditions.map(function (c) {
+      return c.label + " = " + (c.answer || c.state);
+    }).join("; ");
+
+    return "Raffle " + month + " — winner: " + who(winner) + ". " +
+      "Drawn from " + eligible.length + " eligible: " +
+      eligible.map(who).join(", ") + ". " +
+      "Winner's conditions at the draw: " + conds + ".";
+  }
+
+  /** The move button's event text. The YYYY-MM is what `monthOf` parses back. */
+  function moveText(fromMonth, toMonth) {
+    return "Moved to the " + toMonth + " raffle (from " + fromMonth + ")";
+  }
+
   /* ---------- The monthly fold ---------- */
 
   function build(state) {
@@ -229,6 +343,19 @@
     // The setting's own note: blank means the current month.
     var month = isMonthKey(active) ? active : currentMonth();
     var invalidSetting = active !== "" && !isMonthKey(active);
+
+    // Prior wins, by PERSON. Built across every testimonial before any
+    // eligibility is computed, because a cycle-1 win must exclude cycle 2.
+    var wonBy = {};
+    state.testimonials.forEach(function (t) {
+      var w = t.recognitions && t.recognitions.raffleWinner;
+      if (!w) return;
+      var prev = wonBy[t.email];
+      if (!prev || w.ts > prev.ts) {
+        wonBy[t.email] = { ts: w.ts, cycle: t.cycle, event: w.event || "",
+                           actor: root.StateBuilder.actorOf(w) };
+      }
+    });
 
     var entries = [];
     state.testimonials.forEach(function (t) {
@@ -248,7 +375,15 @@
         entryAt: entryTs(t),
         compliance: comp,
         qualifies: comp.qualifies,
-        alreadyWon: !!(t.recognitions && t.recognitions.raffleWinner)
+        alreadyWon: !!(t.recognitions && t.recognitions.raffleWinner),
+        // The person has won at some point — possibly on another cycle.
+        personWon: !!wonBy[t.email],
+        personWonAt: wonBy[t.email] ? wonBy[t.email].ts : NaN,
+        personWonCycle: wonBy[t.email] ? wonBy[t.email].cycle : 0,
+        winnerEvent: (t.recognitions && t.recognitions.raffleWinner) || null,
+        // Post-draw task state (D-080): independent, neither blocks the other.
+        monthAdded:   !!(t.lastByStage || {})[root.StateBuilder.normStage(S.RAFFLE_MONTH_ADDED)],
+        messagesSent: !!(t.lastByStage || {})[root.StateBuilder.normStage(S.RAFFLE_MESSAGES)]
       });
     });
 
@@ -259,16 +394,58 @@
       return a.name.localeCompare(b.name);
     });
 
+    /* ---------- The draw, for this month ---------- */
+
+    var eligible = eligibleFrom(inMonth);
+
+    // The month's winner is the cohort member carrying the winner event. No
+    // month is parsed out of the snapshot: the cohort already answers it, and
+    // one source beats two that can disagree.
+    //
+    // Ordered by WHEN the win was confirmed, not by list position, so "the
+    // winner" is the first one confirmed even in the impossible two-winner
+    // case. List order would make the answer depend on the display sort, and
+    // the Digest mirror does not sort at all — the two would disagree exactly
+    // when the data is already wrong and clarity matters most.
+    var winners = inMonth.filter(function (e) { return e.alreadyWon; })
+      .sort(function (a, b) {
+        var at = a.winnerEvent ? a.winnerEvent.ts : Infinity;
+        var bt = b.winnerEvent ? b.winnerEvent.ts : Infinity;
+        return at - bt;
+      });
+    var winner = winners[0] || null;
+
+    // Not reachable through the UI (the draw button disappears once a winner
+    // exists), so it can only mean a double write or a hand-edited log —
+    // exactly the kind of thing that must be visible rather than averaged over.
+    var doubleWinner = winners.length > 1 ? winners : null;
+
+    var drawState = winner ? "done"
+                  : (eligible.length ? (monthIsPast(month) ? "overdue" : "due")
+                                     : "waiting");
+
     return {
       month: month,
       monthLabel: monthLabel(month),
       isCurrentMonth: month === currentMonth(),
+      isPastMonth: monthIsPast(month),
+      nextMonth: nextMonth(month),
       fromSetting: isMonthKey(active),
       invalidSetting: invalidSetting,
       entries: inMonth,
       qualifying: inMonth.filter(function (e) { return e.qualifies; }),
       needsReview: inMonth.filter(function (e) { return e.compliance.needsReview; }),
       movedIn: inMonth.filter(function (e) { return e.moved; }),
+
+      /* the draw */
+      eligible: eligible,
+      // Qualifies but is out because the person already won — shown, not
+      // hidden, so "why is she not in the draw?" has a visible answer.
+      excludedPriorWin: inMonth.filter(function (e) { return e.qualifies && e.personWon && !e.alreadyWon; }),
+      winner: winner,
+      doubleWinner: doubleWinner,
+      drawState: drawState,
+      drawDue: drawState === "due" || drawState === "overdue",
       // Everyone, so the view can say what a different month would hold.
       allEntries: entries,
       months: entries.reduce(function (m, e) {
@@ -313,6 +490,67 @@
       });
     });
 
+    /* ---------- Draw invariants (the draw chunk) ---------- */
+
+    // Eligibility must be a SUBSET of qualifying, always. This is the invariant
+    // that matters most: everything else about the raffle is cosmetic next to
+    // handing a free month to someone who did not meet the three conditions.
+    var fake = [
+      { name: "Q",  email: "q@x",  cycle: 1, qualifies: true,  personWon: false },
+      { name: "NQ", email: "nq@x", cycle: 1, qualifies: false, personWon: false },
+      { name: "PW", email: "pw@x", cycle: 2, qualifies: true,  personWon: true }
+    ];
+    var got = eligibleFrom(fake).map(function (e) { return e.name; });
+
+    if (got.indexOf("NQ") >= 0) {
+      problems.push("a testimonial that does NOT qualify reached the eligible list (D-008)");
+    }
+    if (got.indexOf("PW") >= 0) {
+      problems.push("someone who has already won reached the eligible list — a prior win " +
+                    "excludes the person across every cycle");
+    }
+    if (got.length !== 1 || got[0] !== "Q") {
+      problems.push("eligibility is not exactly 'qualifies and has never won' — got [" + got.join(", ") + "]");
+    }
+
+    // The draw can only ever return a member of the list it was given.
+    var pick0 = drawFrom(fake.slice(0, 1), function () { return 0; });
+    var pickEnd = drawFrom(fake, function () { return 1; });
+    if (!pick0 || pick0.name !== "Q") problems.push("drawFrom() did not return the only candidate");
+    if (!pickEnd || pickEnd.name !== "PW") problems.push("drawFrom() cannot reach the last candidate (rnd() === 1)");
+    if (drawFrom([], function () { return 0; }) !== null) problems.push("drawFrom() must return null on an empty list");
+
+    // The snapshot is the record. Without the month it cannot be read back.
+    var snap = snapshotText("2026-08", {
+      name: "W", email: "w@x", cycle: 1,
+      compliance: { conditions: [{ label: "Photo permission", answer: 'Yes ("sure")', state: "met" }] }
+    }, [{ name: "W", email: "w@x", cycle: 1 }]);
+    if (snap.indexOf("2026-08") < 0) {
+      problems.push("the winner snapshot does not carry the month as YYYY-MM (spec §4.4)");
+    }
+
+    // The move event must round-trip through the reader that consumes it,
+    // or the button writes a row the cohort silently ignores.
+    var mv = moveText("2026-08", "2026-09");
+    var back = /(\d{4}-\d{2})/.exec(mv);
+    if (!back || back[1] !== "2026-09") {
+      problems.push("moveText() does not put the TARGET month first, so monthOf() would " +
+                    "read the wrong month back out (D-100)");
+    }
+
+    // The four strings this chunk writes must be writable. A missing one is
+    // the D-092 failure: the button looks fine and the write is refused.
+    if (root.EventWriter && root.EventWriter.isAllowedStage) {
+      [S.RAFFLE_WINNER, S.RAFFLE_MESSAGES, S.RAFFLE_MONTH_ADDED, S.RAFFLE_MONTH_MOVED]
+        .forEach(function (s) {
+          if (!root.EventWriter.isAllowedStage(s)) {
+            problems.push('"' + s + '" is not a writable dashboard Stage — the raffle ' +
+                          "cannot write it (add it to config.js STAGES and to ALLOWED_STAGES " +
+                          "in Code.gs, then bump PROXY_VERSION)");
+          }
+        });
+    }
+
     return problems;
   }
 
@@ -327,7 +565,13 @@
     monthKey: monthKey,
     monthLabel: monthLabel,
     currentMonth: currentMonth,
+    nextMonth: nextMonth,
+    monthIsPast: monthIsPast,
     isMonthKey: isMonthKey,
+    eligibleFrom: eligibleFrom,
+    drawFrom: drawFrom,
+    snapshotText: snapshotText,
+    moveText: moveText,
     selfCheck: selfCheck,
     PREFS: PREFS
   };

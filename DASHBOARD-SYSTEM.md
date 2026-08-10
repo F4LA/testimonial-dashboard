@@ -1,7 +1,7 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-09**
-**Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts). The Slack digest is written but NOT wired. Phases 4–5 not built.**
+**Last updated: 2026-08-10**
+**Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
 Describes how the Testimonial Dashboard actually works: its architecture, every module, every rule, and the reasons behind them. This is not a one-off handover — it is the canonical reference, kept current with every change.
@@ -506,11 +506,11 @@ The client card's stopgap `Assign a week` / `Post scheduled` / `Email scheduled`
 
 ---
 
-## 10.9 Raffle — compliance (Phase 5, read-only)
+## 10.9 Raffle — compliance and the draw (Phase 5)
 
-`dashboard/raffle.js` (the fold) · `dashboard/raffle-view.js` (`#/raffle`) · the client card's Recognitions block.
+`dashboard/raffle.js` (the fold) · `dashboard/raffle-view.js` (`#/raffle`) · the client card's Recognitions block · `dashboard/flows.js` + `dashboard/alerts.js` (the tasks) · `apps-script/Digest.gs` (the mirror).
 
-**This half writes nothing.** It computes from events that already exist and displays. No proxy call, no `PROXY_VERSION` bump, no `ALLOWED_STAGES` check — that check belongs to the first chunk that writes. The draw, the snapshot, and the parallel post-draw tasks are the next chunk.
+**Compliance computes; the draw writes.** The compliance half still derives everything from events that already exist. The draw half adds **two writes from the raffle view** (`Raffle — month moved`, `Raffle — winner confirmed`) and **three task-completion writes from the queue** (`Raffle — month added`, `Raffle — messages sent`). All four `Raffle —` strings are in the proxy's `ALLOWED_STAGES` as of **`PROXY_VERSION` 5**.
 
 ### The three conditions
 
@@ -544,15 +544,58 @@ A testimonial belongs to the month of its **earliest event** for that `(email, c
 
 `cycle` is **not** a calendar concept — it is 1, 2, 3 per client. What it contributes is that a client's part-2 testimonial is a separate raffle subject.
 
-**The manual override is honoured now, though nothing writes it yet.** A real case the automatic rule cannot cover: a client says yes, sends nothing that week, sends it two weeks later. Gaby will move them to another month from the raffle view, and that move writes an attributed `Raffle — month moved` event carrying the target `YYYY-MM` — the decision must never live only in her head. The button is a write and ships with the draw chunk; this reader already respects the event, so the view is correct the moment it lands with nothing to recompute. **`Raffle — month moved` is in `config.js` but NOT in the proxy's `ALLOWED_STAGES` — add it and bump `PROXY_VERSION` before the first write.**
+**The manual override ships as a button.** A real case the automatic rule cannot cover: a client says yes, sends nothing that week, sends it two weeks later. **Move to another month** on each row in `#/raffle` writes an attributed `Raffle — month moved` event carrying the target `YYYY-MM` — the decision never lives only in Gaby's head. Latest-wins, so a second move supersedes the first. The offered targets are next month, the month after, and the current month when a past cohort is pinned. It is hidden for anyone who has already won, whose cohort is part of a settled record.
 
-### Digest
+`RaffleFold.moveText()` puts the **target** month first, because the reader takes the first `\d{4}-\d{2}` in the text. `selfCheck()` asserts that round-trip, so the button can never write a row the cohort silently ignores.
 
-**`Digest.gs` is unchanged and needs no change.** This chunk emits no task and no alert, so there is no second source of truth to keep. **The moment any digest output depends on raffle qualification**, D-088 applies: the qualification logic must exist in both `dashboard/raffle.js` and `Digest.gs`, with `selfCheck()` comparing them — in the same commit.
+### The draw
 
-### Known limit
+**Eligible = qualifies on all three ∧ in this month's cohort ∧ the person has never won.** Cohort-only is the approved scope (it closes what D-100 left open): "everyone currently qualifying" would let a June entrant win August. Eligibility is derived from the same `compliance()` the read-only view has always used — there is no second qualification rule, and `selfCheck()` proves a non-qualifier can never reach the eligible list.
 
-The bridge writes no cycle, so a blank cycle folds to 1 and a client's **cycle-2** preferences submission would attach to cycle 1. Harmless at launch, wrong on the first re-nomination (D-100).
+**"Already won" is read per PERSON, across every cycle and month.** D-100 settles which testimonial competes (a part-2 testimonial is a separate subject) but not whether someone can win twice. The conservative reading is used deliberately: an over-broad exclusion costs someone one month in a monthly raffle, while an over-narrow one hands out a second free month, which is a contract change nobody decided. Entries excluded this way are **shown, not hidden**, so "why is she not in the draw?" has a visible answer.
+
+**The draw proposes, a human confirms.** `Run the draw` picks at random and shows the name in a confirmation dialog; nothing is written until Gaby confirms. Cancelling writes nothing and the next click draws afresh — inherent to propose-then-confirm, stated in the dialog rather than hidden, and only a confirmed draw is ever in the log.
+
+**The snapshot is the record** (spec §4.4). The winner event text freezes the month, the winner, the full eligible list and the winner's three conditions in the client's own words. Everything else about the raffle is live, which is right for a working list and wrong for a record: a client editing their preferences form in September must not retroactively change who was eligible in August. The client card shows a past win **above** the live conditions and says which is which, so the two can never read as contradicting each other (the failure fixed in `089dd9e`).
+
+**Draw-due state.** `waiting` (nobody eligible) → `due` (eligible, no winner) → `overdue` (the month has ended undrawn) → `done`. No Settings key: "there are eligible entries and no winner" is a fact and a month that ended is late by the calendar — neither is a timing policy, so hard rule 8 is not engaged. Two recorded winners in one month is impossible through the UI, so it is surfaced as a **Bernardo review task** rather than averaged over; both implementations name the **earliest-confirmed** winner so they cannot disagree about which one counts.
+
+### After the draw — two tasks, in parallel (D-080)
+
+Both fire from the winner confirmation and **neither blocks the other** — they are two separate flows, not one ladder, precisely because the old SOP sent the winner message only after the contract was updated.
+
+| Owner | Task | Marking it done writes |
+|---|---|---|
+| Miguel | add one extra month in the client Master Sheet + leave the note | `Raffle — month added` |
+| Gaby | the winner message + the non-winner thank-yous, through Everfit | `Raffle — messages sent` |
+
+**The dashboard never touches the Master Sheet** — it hands Miguel the task with the note text ready to paste. Both are actioned **in the queue**, like every other task; the raffle view shows their state and links there, so there is one write path per action rather than two.
+
+⚠️ **Gaby's two client-facing messages have no approved copy in the repo.** They are declared as `NONE`-source templates, so the queue says *"no approved message exists for this step yet"* instead of inventing words in Gaby's voice. Paste the SOP wording into `TEMPLATES.raffleWinnerMessage` / `raffleNonWinnerMessage` in `flows.js` and the copy buttons light up with no other change.
+
+### Digest (D-088) — the raffle now lives in TWO places
+
+The draw emits tasks and a draw-due state, so `Digest.gs` is no longer raffle-blind and **is now a genuine second source of truth for the raffle**. Both halves shipped in the same commit.
+
+| Rule | Frontend | `Digest.gs` |
+|---|---|---|
+| answer classifier | `raffle.js classify` | `dClassify_` |
+| the three conditions | `raffle.js conditionsFor` | `dRaffleConditions_` |
+| compliance / qualifies | `raffle.js compliance` | `dCompliance_` |
+| cohort month + override | `raffle.js monthOf` | `dMonthOf_` |
+| eligibility | `raffle.js eligibleFrom` | `dEligibleFrom_` |
+| the draw-due state | `raffle.js build` | `dRaffle_` |
+| the two post-draw tasks | `flows.js flowRaffleMonth` / `flowRaffleMessages` | `dTasks_` |
+| the month-level draw task | `alerts.js raffleTasks` | `dTasks_` |
+
+`Digest.gs selfCheck()` prints **month · cohort · qualifying · eligible · draw state · winner · raffle-task count** and runs `dSelfCheckRaffle_()`, which re-asserts the invariants structurally (three conditions, no podcast, no dashboard-writable review string, no `client video link`, eligibility ⊆ qualifying, the D-099 `"Not yet"` case, and the month-moved round-trip). Compare its numbers against `RaffleFold.build(state)` in the browser console after any change to either side.
+
+**One asymmetry to know about:** the frontend's post-draw tasks use the standard `hours: 0` rung, so they appear once the winner event's timestamp has passed, while the digest has no clock gate. In production Apps Script stamps the row at write time so the two always agree; they diverge only under a simulated clock (`?sim=`), which the digest has no equivalent of.
+
+### Known limits
+
+- The bridge writes no cycle, so a blank cycle folds to 1 and a client's **cycle-2** preferences submission would attach to cycle 1. Harmless at launch, wrong on the first re-nomination (D-100).
+- **A confirmed winner cannot be un-confirmed** (D-093, open). The log is append-only and no `Raffle — correction` string exists. Deliberately not solved here.
 
 ---
 
@@ -570,7 +613,7 @@ Still required before it can run:
 
 ### ⚠️ It duplicates the fold — the main maintenance risk in this repo
 
-A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, and the alert rules. **That is a genuine second source of truth.** Change any of those and both must change. `selfCheck()` prints this file's stage counts and task total so drift against the dashboard is detectable rather than silent.
+A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, and the alert rules — **and, since the raffle draw, the raffle's conditions, cohort month, eligibility, draw-due state and post-draw tasks too** (§10.9 has the function-by-function map). **That is a genuine second source of truth.** Change any of those and both must change. `selfCheck()` prints this file's stage counts, task total and raffle counts, and runs `dSelfCheckRaffle_()` for the structural invariants, so drift against the dashboard is detectable rather than silent.
 
 ---
 
@@ -738,9 +781,11 @@ Moving a client to Invited fires the collection engine's fan-out, so Gaby never 
 
 **Phase 3 remainder** — the Slack digest exists but is not wired; see §10.5 for the three values still needed.
 
-**Phase 4** — calendar + buffer: the queue view and month view, system-proposed dates, the automatic buffer, the suggestion + dropdown fill. The card's Schedule/Publish buttons are a stopgap until this exists.
+**Phase 5 remainder** — recognitions: **reviews** (the two separate signals, the pushed weekly verification task) and **podcast + client of the month** (the candidates view, the mark-the-winner click that fires the chain, the shout-out task). The raffle half is built — see §10.9.
 
-**Phase 5** — recognitions: raffle (auto compliance, manual draw, snapshot, parallel post-draw tasks), reviews (two separate signals, pushed weekly verification), podcast + client of the month.
+**Carried into the reviews chunk** — `Preferences — unresolved` is written by the bridge but nobody is told; it must surface as a Gaby task (D-098 carry-forward).
+
+**Copy still owed** — the SOP wording for the raffle winner message and the non-winner thank-you (§10.9).
 
 **Planned upgrade, post-launch** — automatic detection of the client video by polling Drive folder 03 from *our* standalone script (never the live engine). Needs Drive access for the Membership account and an `AUTO - dashboard` Source convention. The fold already accepts the event either way, so it lands with no downstream change.
 

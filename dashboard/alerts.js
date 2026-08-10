@@ -64,6 +64,53 @@
   }
 
   /**
+   * The draw itself is a MONTH-level task, not a per-client one — it is the one
+   * task in the system that belongs to a cohort rather than to a person, which
+   * is why it cannot be a flow in `flows.js`.
+   *
+   * No threshold: "there are eligible entries and no winner yet" is a fact, and
+   * a month that has ended with no draw is late by the calendar. Neither is a
+   * timing policy, so nothing here needs a Settings key (hard rule 8).
+   *
+   * ⚠️ Mirrored in `apps-script/Digest.gs` (D-088).
+   */
+  function raffleTasks(state) {
+    if (!root.RaffleFold) return [];
+    var r = root.RaffleFold.build(state);
+    var out = [];
+
+    if (r.drawDue) {
+      out.push({
+        id: "raffle|draw|" + r.month, flow: "raffleDraw", rung: "draw", owner: "Gaby",
+        severity: r.drawState === "overdue" ? "overdue" : "due",
+        title: "Run the " + r.monthLabel + " raffle draw — " + r.eligible.length +
+               " eligible " + (r.eligible.length === 1 ? "entry" : "entries") + ".",
+        detail: (r.drawState === "overdue"
+                  ? r.monthLabel + " is over and no winner was drawn. "
+                  : "") +
+                "The draw is deliberately manual: open the raffle view, draw, and confirm. " +
+                "Confirming freezes who qualified today and fires Miguel's and Gaby's tasks at once.",
+        clientKey: "", clientName: "", email: "", cycle: 1,
+        actions: []          // the draw needs its snapshot, so it happens in the raffle view
+      });
+    }
+
+    if (r.doubleWinner) {
+      out.push({
+        id: "raffle|double|" + r.month, flow: "raffleDraw", rung: "double", owner: "Bernardo",
+        severity: "review",
+        title: "Two raffle winners are recorded for " + r.monthLabel + ".",
+        detail: "The draw cannot produce this, so it means a double write or a hand-edited log. " +
+                "Nothing can be deleted (append-only): " +
+                r.doubleWinner.map(function (e) { return e.name; }).join(" and ") + ".",
+        clientKey: "", clientName: "", email: "", cycle: 1, actions: []
+      });
+    }
+
+    return out;
+  }
+
+  /**
    * @param {Object} state  StateBuilder.build() output
    * @returns {{tasks:Array, byOwner:Object, owners:Array, counts:Object, problems:Array}}
    */
@@ -92,6 +139,7 @@
     });
 
     tasks = tasks.concat(reviewTasks(state));
+    tasks = tasks.concat(raffleTasks(state));
 
     // Invariant: every owner is a real dashboard user. Coaches are never owners.
     tasks.forEach(function (t) {
