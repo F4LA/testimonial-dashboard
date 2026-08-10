@@ -13,6 +13,51 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-10 — Phase 5: the raffle DRAW, validated live; then two fixes it exposed
+
+**The write half of the raffle** (`fad352d`), and the follow-up commit for the two defects the live test found. The system log closes the whole raffle section in one row (D-103); this entry is the repo-side record.
+
+### What shipped
+
+Three parts, frontend and `Digest.gs` **in the same commit** as D-088 requires:
+
+1. **Move to another month** (D-100) — per-row button in `#/raffle`, confirmation-dialogued, writing `Raffle — month moved` with the target as `YYYY-MM`. Latest-wins, so a second move supersedes the first.
+2. **The draw** — eligible = qualifies on all three ∧ in this month's cohort ∧ the **person** has never won. Cohort-only closes the scope question D-100 left open. Derived from the same `compliance()` the read-only view always used, so there is one qualification rule and `selfCheck()` proves a non-qualifier can never reach the eligible list. The system draws; a human confirms. The winner event freezes month + winner + the full eligible list + the winner's conditions in the client's own words (spec §4.4).
+3. **Post-draw, parallel** (D-080) — Miguel's Master Sheet month and Gaby's messages as two independent flows, never chained, actioned in the queue.
+
+Plus a month-level draw-due state (`waiting/due/overdue/done`) with **no Settings threshold** — "eligible entries exist and no winner" is a fact, and a month that ended undrawn is late by the calendar; a Bernardo review task if two winners are ever recorded; and the client card showing a past win **above** the live conditions, so the two cannot read as contradicting each other (the `089dd9e` failure class). `PROXY_VERSION` 5 adds `Raffle — month moved` to `ALLOWED_STAGES`, redeployed by editing deployment `…qll5X-MnC3gZ` (D-092).
+
+### The pre-flight paid for itself
+
+The live `ALLOWED_STAGES` check ran **before** any code was written (D-092's lesson). A negative control confirmed the vocabulary gate can actually fail — an invented stage, an engine-owned stage and an unattributed write were all rejected — and `Raffle — month moved` was confirmed missing from the deployment, exactly as predicted. Worth recording that **the proxy has no dry-run**: reaching the stage check with a *valid* string appends a row, so a string can only be confirmed present by writing one. That is why the three pre-existing raffle strings were deliberately **not** probed, and why the one acceptance check that was run used the real move payload on test data rather than a throwaway.
+
+### Validated live, end to end, pre-wipe
+
+Rows 91 and 106 (both moves, supersede confirmed), 107 (winner **Karen Nosek**, drawn from 2 eligible), 108 and 109 (both post-draw tasks — Miguel's marked first, Gaby's confirmed still standing, then marked). The snapshot was checked by **rebuilding the pre-draw state from rows 1–106 alone** and recomputing the eligible set independently: it matches what the event froze, so the record is a true account of the moment and not merely well-formed. `Digest.gs` agreed on the winner, the draw state and both task states.
+
+### The D-088 comparison found a real bug
+
+Running both implementations over identical event rows across nine scenarios: with two winners recorded, **the two sides named different people** — the frontend by display-sort order, the digest by sheet order. Both now take the **earliest-confirmed** win. Exactly the class of divergence the guard exists to catch, and it would never have surfaced from reading either file.
+
+### Two defects the live test exposed — fixed in the follow-up commit
+
+**1 · `activeMonth` was silently defeated by a Sheets date coercion.** Typing `2026-09` — what the setting's own note instructs — makes Sheets store the **serial `46266`**. Every reader tested it against `YYYY-MM`, failed, and fell back silently. Two consequences, one of them outward-facing: the raffle showed the wrong cohort behind an "invalid value" banner, and **`flows.js roundDeadline` put the wrong month into the deadline a COACH is told**. Normalised now in the one place a raw cell becomes a value (`sheets-reader.js monthSetting`, mirrored as `dMonthSetting_`), accepting a real `YYYY-MM`, a date serial, an ISO date or a `Date`. **Anything unrecognised is returned unchanged on purpose** — nonsense like `Septembre` must still fail the readers' test and still raise the banner rather than be swallowed as "no pin set".
+
+**2 · `movedFrom` reported the entry month instead of the previous override.** On a round trip (Aug → Sep → Aug) that made the card read *"moved from Aug 2026"* while sitting in Aug 2026. `monthOf` now walks **every** move: the newest decides the month, the one before it is what "moved from" reports, and a move with no readable month is skipped rather than guessed at. Both views also drop the clause entirely when it would name the month already on screen.
+
+Both fixes are asserted in **both** `selfCheck()`s, so neither can regress quietly.
+
+### Still open
+
+- **No undo on a confirmed winner** (D-093) — the log is append-only and no `Raffle — correction` string exists.
+- **The bridge writes no cycle** (D-100) — a cycle-2 preferences submission attaches to cycle 1. Harmless at launch, wrong on the first re-nomination.
+- **Gaby's two client-facing templates have no approved copy.** Declared `NONE`-source, so the queue says *"no approved message exists for this step yet"* rather than inventing words in her voice. Paste the SOP wording into `TEMPLATES.raffleWinnerMessage` / `raffleNonWinnerMessage` and the buttons light up with no other change.
+- **Re-drawing is possible by design** — the pick happens on click and is shown in the dialog, so cancelling and clicking again gives a different name. Inherent to propose-then-confirm; stated in the dialog, and only a confirmed draw is ever logged.
+
+All eight test clients and every row above join the 2026-08-10 wipe.
+
+---
+
 ## 2026-08-09 — D-099 validated live; the log's append-only rule made absolute
 
 **The fix is confirmed on the branch that was actually broken.** The preferences form was resubmitted with `"Not yet"` on the review question, and **Event Log row 89** wrote `No ("Not yet")` — a clean No with the client's raw wording preserved, not an unclear flag. **Zero `Unclear answer` rows remain anywhere in the log.**

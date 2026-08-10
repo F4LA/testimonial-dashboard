@@ -52,7 +52,8 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
 | task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` |
 | raffle: conditions, answer classifier | `dashboard/raffle.js` | `apps-script/Digest.gs` `dRaffleConditions_` / `dClassify_` |
-| raffle: cohort month + `month moved` | `dashboard/raffle.js` `monthOf` | `apps-script/Digest.gs` `dMonthOf_` |
+| raffle: cohort month + `month moved` | `dashboard/raffle.js` `monthOf` / `moveTargets` | `apps-script/Digest.gs` `dMonthOf_` |
+| the `activeMonth` setting (Sheets date coercion) | `dashboard/sheets-reader.js` `monthSetting` | `apps-script/Digest.gs` `dMonthSetting_` |
 | raffle: eligibility + draw-due state | `dashboard/raffle.js` `eligibleFrom` / `build` | `apps-script/Digest.gs` `dEligibleFrom_` / `dRaffle_` |
 | raffle: the two parallel post-draw tasks | `dashboard/flows.js` + `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |
 | Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |

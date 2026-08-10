@@ -112,8 +112,14 @@
     var tags = "";
     if (e.alreadyWon) tags += '<span class="badge badge--ok">already won</span>';
     if (e.moved) {
-      tags += '<span class="badge badge--warn" title="' + esc(e.movedNote) + '">moved from ' +
-        esc(root.RaffleFold.monthLabel(e.movedFrom)) + (e.movedBy ? " by " + esc(e.movedBy) : "") + "</span>";
+      // The "from" clause is dropped when it would name the month we are already
+      // looking at — that happens on a round trip, and "moved from Aug" while
+      // reading Aug says nothing true.
+      var whence = (e.movedFrom && e.movedFrom !== e.month)
+        ? "moved from " + esc(root.RaffleFold.monthLabel(e.movedFrom))
+        : "moved here";
+      tags += '<span class="badge badge--warn" title="' + esc(e.movedNote) + '">' + whence +
+        (e.movedBy ? " by " + esc(e.movedBy) : "") + "</span>";
     }
     if (e.cycle > 1) tags += '<span class="badge badge--muted">part ' + e.cycle + "</span>";
 

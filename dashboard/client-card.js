@@ -304,8 +304,14 @@
 
     var raffleBlock =
       '<h4 class="rec__h">Raffle — ' + esc(root.RaffleFold.monthLabel(m.month)) +
-        (m.moved ? " <span class='badge badge--warn'>moved from " +
-          esc(root.RaffleFold.monthLabel(m.from)) + "</span>" : "") + " " + verdict + "</h4>" +
+        // Same reason as the raffle view: on a round trip the previous month can
+        // be the month shown, and naming it then is worse than saying nothing.
+        (m.moved
+          ? " <span class='badge badge--warn'>" +
+            (m.from && m.from !== m.month
+              ? "moved from " + esc(root.RaffleFold.monthLabel(m.from))
+              : "moved here") + "</span>"
+          : "") + " " + verdict + "</h4>" +
       '<p class="section__sub">Three conditions, computed live. The review condition reads the client\'s ' +
       "<strong>self-report</strong>, never a confirmation (a real reviewer who cannot be matched by name is " +
       "never excluded). Podcast consent is not a condition.</p>" +

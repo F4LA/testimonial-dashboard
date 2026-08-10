@@ -179,17 +179,37 @@
    * to recompute.
    */
   function monthOf(t) {
-    var moved = t.lastByStage
-      ? t.lastByStage[root.StateBuilder.normStage(S.RAFFLE_MONTH_MOVED)]
-      : null;
-    if (moved) {
-      var m = /(\d{4}-\d{2})/.exec(String(moved.event || ""));
-      if (m && isMonthKey(m[1])) {
-        return { month: m[1], moved: true, movedBy: root.StateBuilder.actorOf(moved),
-                 movedAt: moved.ts, from: monthKey(entryTs(t)), note: moved.event };
-      }
-    }
-    return { month: monthKey(entryTs(t)), moved: false };
+    // EVERY move, not just the newest. The newest one alone answers "which
+    // month is this client in", but not "which month did they come FROM" — on a
+    // round trip (Aug → Sep → Aug) the entry month and the current month are the
+    // same, so reporting entry-as-from made the card read "moved from Aug 2026"
+    // while sitting in Aug 2026. The previous move is the honest answer.
+    var moves = moveTargets(t);
+    if (!moves.length) return { month: monthKey(entryTs(t)), moved: false };
+
+    var last = moves[moves.length - 1];
+    var prev = moves.length > 1 ? moves[moves.length - 2].month : monthKey(entryTs(t));
+
+    return { month: last.month, moved: true,
+             movedBy: root.StateBuilder.actorOf(last.ev),
+             movedAt: last.ev.ts, from: prev, note: last.ev.event };
+  }
+
+  /**
+   * The `Raffle — month moved` events that carry a readable target, oldest
+   * first. Events arrive ordered by (timestamp, row), so this order is the
+   * order the decisions were made. A move whose text holds no valid month is
+   * skipped rather than guessed at — it cannot move anybody.
+   */
+  function moveTargets(t) {
+    var want = root.StateBuilder.normStage(S.RAFFLE_MONTH_MOVED);
+    var out = [];
+    (t.events || []).forEach(function (ev) {
+      if (root.StateBuilder.normStage(ev.stage) !== want) return;
+      var m = /(\d{4}-\d{2})/.exec(String(ev.event || ""));
+      if (m && isMonthKey(m[1])) out.push({ month: m[1], ev: ev });
+    });
+    return out;
   }
 
   /** Events arrive ordered by (timestamp, row), so the first is the earliest. */
@@ -536,6 +556,46 @@
     if (!back || back[1] !== "2026-09") {
       problems.push("moveText() does not put the TARGET month first, so monthOf() would " +
                     "read the wrong month back out (D-100)");
+    }
+
+    // Driven through monthOf itself, not just the regex: one move, then a round
+    // trip, then an unreadable one.
+    function fakeT(texts) {
+      return { events: texts.map(function (txt, i) {
+        return { stage: S.RAFFLE_MONTH_MOVED, event: txt, ts: i + 1, source: "MANUAL - Gaby" };
+      }), lastByStage: {} };
+    }
+    var one = monthOf(fakeT([moveText("2026-08", "2026-09")]));
+    if (one.month !== "2026-09" || !one.moved) {
+      problems.push("a single move did not read back as 2026-09 (D-100)");
+    }
+    // `from` on a FIRST move is the entry month, which for this probe is
+    // whatever its synthetic timestamps imply — not worth asserting. The round
+    // trip below is the case that actually pins `from` down.
+    var trip = monthOf(fakeT([moveText("2026-08", "2026-09"), moveText("2026-09", "2026-08")]));
+    if (trip.month !== "2026-08") {
+      problems.push("the NEWEST move must decide the month, got " + trip.month);
+    }
+    if (trip.from !== "2026-09") {
+      problems.push("after a round trip, `from` must be the PREVIOUS move (2026-09), not the " +
+                    "entry month — otherwise the card says 'moved from Aug' while showing Aug. Got " + trip.from);
+    }
+    if (monthOf(fakeT(["moved to next month"])).moved) {
+      problems.push("a move with no readable YYYY-MM must be ignored, not guessed at");
+    }
+
+    // The Sheets date coercion (`activeMonth`). Normalised in sheets-reader so
+    // every consumer benefits; asserted here because the raffle is what broke.
+    if (root.SheetsReader && root.SheetsReader._monthSetting) {
+      var ms = root.SheetsReader._monthSetting;
+      if (ms(46266) !== "2026-09") problems.push("a Sheets date serial must normalise to YYYY-MM, got " + ms(46266));
+      if (ms("2026-08") !== "2026-08") problems.push("a real YYYY-MM must pass through unchanged");
+      if (ms("2026-08-01") !== "2026-08") problems.push("an ISO date must normalise to its month");
+      if (ms("") !== "") problems.push("blank must stay blank (blank = the current month)");
+      if (ms("Septembre") !== "Septembre") {
+        problems.push("an unrecognised activeMonth must be returned unchanged, so the invalid-value " +
+                      "banner still fires instead of it being swallowed as 'no pin set'");
+      }
     }
 
     // The four strings this chunk writes must be writable. A missing one is

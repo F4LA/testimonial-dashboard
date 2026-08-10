@@ -280,6 +280,14 @@ A `Key | Value | Notes` tab in the event-log spreadsheet, created by `setupPhase
 
 Values in the tab win. Missing keys fall back to `SETTINGS_DEFAULTS` in `config.js`, so a partial tab is safe. Unknown keys in the tab are ignored. **These are defaults to be tuned in the tab, not in code.**
 
+### ⚠️ `activeMonth` and the Sheets date coercion
+
+Typing `2026-08` into that cell — exactly what its own note tells you to do — makes Sheets **convert it to a date**, so the value read back is the serial `46266`, not the string. Every reader tested it against `YYYY-MM`, failed, and fell back silently: the raffle showed the wrong cohort behind an "invalid value" banner, and `flows.js roundDeadline` put the wrong month into the deadline a **coach** is told. One coercion, two silent failures, found during the live raffle draw test.
+
+`parseSettings` now normalises it in the one place a raw cell becomes a value (`sheets-reader.js monthSetting`, mirrored as `Digest.gs dMonthSetting_`), so no consumer can miss it. It accepts a real `YYYY-MM`, a date serial, an ISO date, or a `Date`. **Anything unrecognised is returned unchanged on purpose** — genuine nonsense like `Septembre` must still fail the readers' test and still raise the banner, rather than being swallowed as "no pin set". Both `selfCheck()`s assert all five cases.
+
+Operators can still enter it either way now, but the cell is cleanest as plain text (`'2026-08` with a leading apostrophe, or Format → Number → Plain text).
+
 ---
 
 ## 8. File layout
@@ -538,7 +546,7 @@ Four states, and the distinction matters: `met` · `not-met` · **`unclear`** ·
 
 ### Which month a testimonial belongs to (D-100)
 
-The month is the Settings `activeMonth` (`YYYY-MM`); **blank means the current month**, exactly as that setting's own note already says. An invalid value falls back to the current month and says so on screen.
+The month is the Settings `activeMonth` (`YYYY-MM`); **blank means the current month**, exactly as that setting's own note already says. A date-coerced cell is normalised before it gets here (§7); a genuinely unreadable value falls back to the current month and says so on screen.
 
 A testimonial belongs to the month of its **earliest event** for that `(email, cycle)` — cohort-by-entry, in practice `Nomination — logged`. Deliberately **not** the month it qualified: qualification is unstable under latest-wins, so a client who qualified in August and resubmitted the form in September would silently hop cohorts and vanish from August's list, possibly after the draw ran. Entry is fixed the moment the testimonial exists.
 
@@ -546,7 +554,9 @@ A testimonial belongs to the month of its **earliest event** for that `(email, c
 
 **The manual override ships as a button.** A real case the automatic rule cannot cover: a client says yes, sends nothing that week, sends it two weeks later. **Move to another month** on each row in `#/raffle` writes an attributed `Raffle — month moved` event carrying the target `YYYY-MM` — the decision never lives only in Gaby's head. Latest-wins, so a second move supersedes the first. The offered targets are next month, the month after, and the current month when a past cohort is pinned. It is hidden for anyone who has already won, whose cohort is part of a settled record.
 
-`RaffleFold.moveText()` puts the **target** month first, because the reader takes the first `\d{4}-\d{2}` in the text. `selfCheck()` asserts that round-trip, so the button can never write a row the cohort silently ignores.
+`RaffleFold.moveText()` puts the **target** month first, because the reader takes the first `\d{4}-\d{2}` in the text. `selfCheck()` asserts that round-trip, so the button can never write a row the cohort silently ignores. A move whose text holds no readable month is skipped rather than guessed at.
+
+`monthOf` reads **every** move, not just the newest. The newest decides the month; the one before it is what "moved from" reports. Using the *entry* month for that was wrong on a round trip (Aug → Sep → Aug), where it produced "moved from Aug 2026" on a card sitting in Aug 2026. Both views also drop the clause entirely when it would name the month already on screen.
 
 ### The draw
 
@@ -582,7 +592,8 @@ The draw emits tasks and a draw-due state, so `Digest.gs` is no longer raffle-bl
 | answer classifier | `raffle.js classify` | `dClassify_` |
 | the three conditions | `raffle.js conditionsFor` | `dRaffleConditions_` |
 | compliance / qualifies | `raffle.js compliance` | `dCompliance_` |
-| cohort month + override | `raffle.js monthOf` | `dMonthOf_` |
+| cohort month + override | `raffle.js monthOf` / `moveTargets` | `dMonthOf_` |
+| the `activeMonth` setting | `sheets-reader.js monthSetting` | `dMonthSetting_` |
 | eligibility | `raffle.js eligibleFrom` | `dEligibleFrom_` |
 | the draw-due state | `raffle.js build` | `dRaffle_` |
 | the two post-draw tasks | `flows.js flowRaffleMonth` / `flowRaffleMessages` | `dTasks_` |

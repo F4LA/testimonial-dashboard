@@ -158,6 +158,32 @@ function dMonthKey_(ms) {
 
 function dIsMonthKey_(s) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || '')); }
 
+/**
+ * Mirror of sheets-reader.js `monthSetting`. Sheets coerces the "2026-08" the
+ * operator types into a DATE, so the value read back is a serial and every
+ * YYYY-MM test failed silently. Anything unrecognised is returned unchanged, so
+ * genuine nonsense still fails the test rather than being swallowed as blank.
+ *
+ * Apps Script reads the cell with getValues(), so here it can arrive as a real
+ * Date object as well as a serial — the frontend only ever sees the serial.
+ */
+function dMonthSetting_(raw) {
+  if (raw instanceof Date) {
+    return raw.getFullYear() + '-' + ('0' + (raw.getMonth() + 1)).slice(-2);
+  }
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) return s;
+  var m = /^(\d{4})-(\d{2})-\d{2}/.exec(s);
+  if (m) return m[1] + '-' + m[2];
+  var n = Number(s);
+  if (isFinite(n) && n > 20000 && n < 90000) {
+    var d = new Date(Math.round((n - 25569) * 86400000));
+    return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2);
+  }
+  return s;
+}
+
 function dCurrentMonth_() { return dMonthKey_(Date.now()); }
 
 function dMonthIsPast_(key) { return dIsMonthKey_(key) && key < dCurrentMonth_(); }
@@ -209,15 +235,22 @@ function dCompliance_(conds) {
  * September would silently move a client out of August, possibly after the
  * draw already ran.
  */
-function dMonthOf_(L, firstTs) {
-  var moved = L(D_S.RAFFLE_MONTH_MOVED);
-  if (moved) {
-    var m = /(\d{4}-\d{2})/.exec(String(moved.event || ''));
-    if (m && dIsMonthKey_(m[1])) {
-      return { month: m[1], moved: true, from: dMonthKey_(firstTs) };
-    }
-  }
-  return { month: dMonthKey_(firstTs), moved: false };
+function dMonthOf_(evs, firstTs) {
+  // Walks EVERY move, matching raffle.js `monthOf` / `moveTargets`. The newest
+  // valid one decides the month; a move with no readable month is skipped rather
+  // than guessed at. `from` is the PREVIOUS move's target, not the entry month,
+  // so a round trip does not claim someone moved from the month they are in.
+  var moves = [];
+  (evs || []).forEach(function (ev) {
+    if (dNorm_(ev.stage) !== dNorm_(D_S.RAFFLE_MONTH_MOVED)) return;
+    var m = /(\d{4}-\d{2})/.exec(String(ev.event || ''));
+    if (m && dIsMonthKey_(m[1])) moves.push({ month: m[1], ev: ev });
+  });
+  if (!moves.length) return { month: dMonthKey_(firstTs), moved: false };
+
+  var last = moves[moves.length - 1];
+  var prev = moves.length > 1 ? moves[moves.length - 2].month : dMonthKey_(firstTs);
+  return { month: last.month, moved: true, from: prev };
 }
 
 /** Mirror of raffle.js `eligibleFrom`. Person-level prior-win exclusion. */
@@ -291,6 +324,9 @@ function dReadSettings_() {
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0]).trim(), v = rows[i][1];
     if (k && out.hasOwnProperty(k) && v !== '') out[k] = (typeof out[k] === 'number') ? Number(v) : String(v);
+    // Normalised at the one place a raw cell becomes a value, so no reader can
+    // miss it (mirror of sheets-reader.js parseSettings).
+    if (k === 'activeMonth' && v !== '') out[k] = dMonthSetting_(v);
   }
   return out;
 }
@@ -417,7 +453,7 @@ function dFold_() {
     // Events are ordered by (timestamp, row), so the first is the earliest —
     // the same "cohort by entry" anchor the frontend uses.
     var firstTs = evs.length ? evs[0].ts : NaN;
-    var rMonth = dMonthOf_(L, firstTs);
+    var rMonth = dMonthOf_(evs, firstTs);
     var rComp = dCompliance_(dRaffleConditions_(L, inputs.video, arrived));
 
     out.push({
@@ -701,12 +737,38 @@ function dSelfCheckRaffle_() {
 
   // The month override must round-trip, or the button writes a row this
   // mirror silently ignores while the frontend honours it.
-  var mv = dMonthOf_(function (s) {
-    return s === D_S.RAFFLE_MONTH_MOVED
-      ? { event: 'Moved to the 2026-09 raffle (from 2026-08)', ts: 0 } : null;
-  }, 0);
-  if (mv.month !== '2026-09' || !mv.moved) {
+  var MOVED = D_S.RAFFLE_MONTH_MOVED;
+  var one = dMonthOf_([{ stage: MOVED, event: 'Moved to the 2026-09 raffle (from 2026-08)', ts: 1 }], 0);
+  if (one.month !== '2026-09' || !one.moved) {
     problems.push('the "Raffle — month moved" override did not read back as 2026-09 (D-100)');
+  }
+
+  // A round trip: the newest move decides the month, and `from` is the PREVIOUS
+  // move, never the entry month — otherwise it claims a move from the month the
+  // client is already in.
+  var trip = dMonthOf_([
+    { stage: MOVED, event: 'Moved to the 2026-09 raffle (from 2026-08)', ts: 1 },
+    { stage: MOVED, event: 'Moved to the 2026-08 raffle (from 2026-09)', ts: 2 }
+  ], 0);
+  if (trip.month !== '2026-08') problems.push('the newest move must decide the month, got ' + trip.month);
+  if (trip.from !== '2026-09') problems.push('after a round trip, "from" must be the PREVIOUS move (2026-09), got ' + trip.from);
+
+  // An unreadable move cannot move anybody.
+  var junk = dMonthOf_([{ stage: MOVED, event: 'moved to next month', ts: 1 }], 0);
+  if (junk.moved) problems.push('a move with no readable YYYY-MM must be ignored, not guessed at');
+
+  // The Sheets date coercion: the operator types "2026-08" and the cell becomes
+  // a date. Every reader used to fail its YYYY-MM test and fall back silently.
+  if (dMonthSetting_(46266) !== '2026-09') {
+    problems.push('a Sheets date serial must normalise to YYYY-MM, got ' + dMonthSetting_(46266));
+  }
+  if (dMonthSetting_('2026-08') !== '2026-08') problems.push('a real YYYY-MM must pass through unchanged');
+  if (dMonthSetting_('2026-08-01') !== '2026-08') problems.push('an ISO date must normalise to its month');
+  if (dMonthSetting_('') !== '') problems.push('blank must stay blank (blank = the current month)');
+  // Nonsense must stay nonsense, so the readers still flag it instead of
+  // silently treating it as "no pin set".
+  if (dMonthSetting_('Septembre') !== 'Septembre') {
+    problems.push('an unrecognised value must be returned unchanged so it still fails the YYYY-MM test');
   }
 
   return problems;

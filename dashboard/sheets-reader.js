@@ -180,6 +180,47 @@
     return out;
   }
 
+  /**
+   * A month setting (`activeMonth`) as a clean `YYYY-MM`.
+   *
+   * ⚠️ Sheets COERCES what the operator types. The setting's own note says
+   * "e.g. 2026-08" — and typing exactly that turns the cell into a DATE, so the
+   * value arriving here is the serial `46266`, not the string. Every reader then
+   * failed its `YYYY-MM` test and silently fell back to the current month: the
+   * raffle showed the wrong cohort behind an "invalid value" banner, and
+   * `flows.js roundDeadline` quietly put the wrong deadline into the message a
+   * COACH receives. One coercion, two silent failures.
+   *
+   * Normalising here rather than at each reader means there is one definition
+   * and no consumer can miss it. `parseSettings` is already where a raw cell
+   * becomes a value, so it is the right place.
+   *
+   * Recognised: an actual `YYYY-MM`, a date serial, an ISO date, a `Date`.
+   * ANYTHING ELSE IS RETURNED UNCHANGED — deliberately, so genuine nonsense
+   * ("Septembre") still fails the readers' `YYYY-MM` test and still raises the
+   * invalid-value banner instead of being silently swallowed as "blank".
+   *
+   * ⚠️ Mirrored in `apps-script/Digest.gs` as `dMonthSetting_` (D-088).
+   */
+  function monthSetting(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return "";
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) return s;                 // already right
+
+    var m = /^(\d{4})-(\d{2})-\d{2}/.exec(s);                        // ISO date
+    if (m) return m[1] + "-" + m[2];
+
+    // A Sheets date serial. The integer part is the wall-clock date in the
+    // spreadsheet's own timezone, so reading it back as UTC gives that date
+    // with no offset arithmetic to get wrong.
+    var n = Number(s);
+    if (isFinite(n) && n > 20000 && n < 90000) {
+      var d = new Date(Math.round((n - 25569) * 86400000));
+      return d.getUTCFullYear() + "-" + ("0" + (d.getUTCMonth() + 1)).slice(-2);
+    }
+    return s;
+  }
+
   /** Settings: a plain Key | Value sheet. Missing keys fall back to defaults. */
   function parseSettings(rows) {
     var settings = {};
@@ -198,6 +239,7 @@
       if (!Object.prototype.hasOwnProperty.call(settings, key)) continue;   // ignore unknown keys
       var num = Number(raw);
       settings[key] = (typeof CFG.SETTINGS_DEFAULTS[key] === "number" && isFinite(num)) ? num : raw;
+      if (key === "activeMonth") settings[key] = monthSetting(raw);
       fromTab.push(key);
     }
     return { values: settings, exists: true, fromTab: fromTab };
@@ -243,6 +285,7 @@
     _parseRoster:      parseRoster,
     _parseMastersheet: parseMastersheet,
     _parseSignal:      parseSignal,
-    _parseSettings:    parseSettings
+    _parseSettings:    parseSettings,
+    _monthSetting:     monthSetting
   };
 })(typeof window !== "undefined" ? window : this);
