@@ -49,6 +49,10 @@ The group is a structural guarantee, not a naming preference. `Review — self-r
 
 **⚠️ Raised for Bernardo:** the responses sheet has an `Email Address` column at index 7, alongside the form's own email question. That is consistent with *"Responder input"* (no login, fine) **and** with *"Verified"* (login required, which would break D-063 for external clients). The sheet cannot distinguish them — the form setting needs a look.
 
+**Confirmed and validated live, same day.** All four strings approved; the trigger is installed (five now). A real submission for Cameron Colbo wrote rows 85-87 — photo permission, review self-reported, podcast consent, all *Yes*. The email resolved to the **typed** `cameron.colbo@gmail.com`, not the logged-in Google account, which settles the `Email Address` question from the data side: identity comes from the master-key question, so a signed-in submitter cannot displace it. The form setting is still worth a look for the *access* half — whether an external client can reach the form at all — but the resolution path is confirmed correct. Cameron Colbo is pre-launch test data and joins the Aug 10 wipe, which now has a fifth location: the preferences responses sheet.
+
+**Carry-forward:** `Preferences — unresolved` is written but nobody is told. It must become a **Gaby task** in the alert engine (spec §5) when the alerts side of Phase 5 is built.
+
 **Files:** `apps-script/engine-prefs-form-bridge.gs`
 
 ---

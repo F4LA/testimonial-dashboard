@@ -41,7 +41,7 @@
 /* ===================== The three signals ===================== */
 
 /**
- * PROPOSED event vocabulary — confirm before installing.
+ * Event vocabulary — CONFIRMED and validated live 2026-08-09 (all four strings).
  *
  * A dedicated `Preferences — ` group rather than reusing `Review — self-reported`
  * (which already exists in the dashboard's ALLOWED_STAGES), for one structural

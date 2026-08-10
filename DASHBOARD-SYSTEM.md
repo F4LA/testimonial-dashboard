@@ -641,9 +641,17 @@ The group is deliberate: `Review — self-reported` is dashboard-writable, so pu
 
 Depends on the D-085 `logEvent_` fallback — this trigger is bound to the responses sheet, so `getActiveSpreadsheet()` returns the wrong file. `checkPrefsFormWiring()` asserts the fix is deployed before anything is installed.
 
-### ⚠️ Open launch gap: the coach form trigger
+**Installed and validated live 2026-08-09.** A real submission wrote three events; the email resolved to the **typed** address rather than the submitter's logged-in Google account, confirming the master key end to end. **Idempotency: none, deliberately** — a resubmission appends three more events and the latest-wins fold keeps the newest as truth, the older ones as history.
 
-As of 2026-08-07 the engine's Triggers list holds only `onSignalEdit` and `sendMonthlyNominationMessage`. **`onCoachFormSubmit` is absent.** Unlike the video handler, this one was never abandoned — the coach form is one of the five collected inputs and the fan-out DMs each coach a link to it. Without the trigger, coach responses at launch are silently lost: nothing routes them to folder 04 and no event is written. Repair steps live in `apps-script/engine-one-time-coach-form-trigger.gs`. This is a launch issue independent of the dashboard.
+**Carry-forward for the alerts side of Phase 5:** `Preferences — unresolved` is written but surfaces to nobody. It must become a Gaby task (spec §5).
+
+### The engine's triggers (five, as of 2026-08-09)
+
+`onSignalEdit` · `onCoachFormSubmit` · `processPendingSignals` · the weekly nomination · `onPrefsFormSubmit`.
+
+`onClientVideoSubmit` exists in the source but is **dead code and not installed** — the video path became a direct upload to the client's Drive folder with no form. Source presence is not evidence of a live path; check the Triggers list.
+
+*Resolved: the coach-form trigger was recorded here on 2026-08-07 as an open launch gap (absent from the Triggers list, so responses would have been silently lost). It was installed and validated end-to-end the same day, and the `logEvent_` silent no-op behind it was fixed as D-085.*
 
 ---
 
