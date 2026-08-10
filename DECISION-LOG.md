@@ -57,6 +57,13 @@ It failed **safe** for the raffle — unclear is not a Yes, so nobody could wron
 
 Every closed option classifies; genuine free text (`"maybe later"`) still flags for review, which is the branch's real job.
 
+**Validated live, on the branch that was actually broken.** The form was resubmitted with `"Not yet"` on the review question and **Event Log row 89** wrote `No ("Not yet")` — a clean No with the client's raw wording preserved, not an unclear flag. **Zero `Unclear answer` rows remain anywhere in the log.**
+
+Two behaviours neither D-098 nor D-099 had exercised live got confirmed in passing:
+
+- **Non-idempotency works as designed** — the resubmission appended three fresh rows (88–90). Nothing overwritten, nothing deduped.
+- **Latest-wins got its first real test** — row 86 says `Yes` and row 89 says `No` for the same `(email, cycle, Stage)`. The newest answer is what counts; the older one stays in the timeline as history. The raffle view picked the change up with no code change: Cameron moved from 2/3 to 1/3.
+
 **The lesson worth keeping.** D-098's live validation answered **"Yes" to every question**, so the negative branch was never executed. A passing happy-path test is not coverage of the branch that matters — and the option strings should have been read off the live form from the start, which is exactly what found this.
 
 No schema change, no trigger change (a re-paste of the same file), proxy and `PROXY_VERSION` untouched.
