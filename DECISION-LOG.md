@@ -5,6 +5,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 > **Mandatory:** every change to the dashboard adds an entry here and updates `DASHBOARD-SYSTEM.md` (see the rule in `CLAUDE.md`). A change is not finished until the documentation is updated and pushed.
 
+> **⚠️ Append-only, absolutely (D-101).** **A past entry's text is never rewritten, edited, or deleted** — not to correct it, not to add new information, not even to record that what it describes was later validated. Unlike the system log (`F4LA/testimonial-system` `decision-log.md`), this file has **no Status column**, so there is exactly one place for new information about an old entry: **a NEW entry at the top**, referencing the old one.
+>
+> *Why:* the log records what was known **when**, not a tidied-up version written with hindsight. An entry edited after the fact stops being usable as evidence of what anyone knew at the time — which is the whole reason it exists. Same instinct as the Event Log being append-only: a mis-marked event is annotated, never rewritten.
+>
+> This does **not** apply to the living documents, which are meant to be rewritten in place: `DASHBOARD-SYSTEM.md`, `CLAUDE.md`, and the system repo's `project-brain.md`.
+
 ---
 
 ## 2026-08-09 — D-099 validated live; the log's append-only rule made absolute
