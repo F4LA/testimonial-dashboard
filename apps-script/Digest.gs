@@ -25,20 +25,30 @@
  *   fold: Collecting = video received OR uploaded     state-builder.js §4.4
  *   gate: video + Everfit + photos; Meet/Loom never   client-card.js collectionLock
  *   rules: owners and thresholds                      alerts.js
+ *   the v2 ladders, rung for rung                     flows.js (dFlow*_ here)
+ *   owners are ONLY Gaby/Miguel/Joey/Bernardo         alerts.js (D_PEOPLE here)
  *   raffle: the three conditions + answer classifier  raffle.js conditionsFor/classify
  *   raffle: cohort month + the "month moved" override raffle.js monthOf
  *   raffle: eligibility and the draw-due state        raffle.js eligibleFrom/build
  *   raffle: the two parallel post-draw tasks          flows.js flowRaffleMonth/Messages
  *   raffle: the month-level draw task                 alerts.js raffleTasks
  *
- * If you change any of those, change them here too. `selfCheck()` compares
- * this file's stage counts against what the dashboard shows, so drift is
- * detectable rather than silent.
+ * If you change any of those, change them here too.
  *
- * The raffle half is the newest and the easiest to get subtly wrong, so
- * `selfCheck()` prints its eligible / draw-due / raffle-task counts explicitly
- * and re-asserts the two invariants that matter: a non-qualifier can never be
- * eligible, and podcast consent is never a condition (D-097).
+ * HOW DRIFT IS CAUGHT. `selfCheck()` prints a TASK FINGERPRINT — one
+ * `owner|flow|rung|severity|clientKey` line per task, sorted. The dashboard
+ * produces the identical string from `Alerts.fingerprint(TDApp.state)` in the
+ * browser console. If the two differ, this file is telling the team something
+ * the queue does not say. It also prints the raffle counts and runs
+ * `dSelfCheckRaffle_()` for the structural invariants.
+ *
+ * ⚠️ THIS FILE ONCE DM'd A COACH. The v1 rules assigned "fill the coach form"
+ * to the coach and `dResolveDm_` resolved their address from the roster, so the
+ * first live digest would have cold-messaged a coach a task the system is
+ * designed never to give them (D-094). Both halves are now closed: `dTasks_`
+ * reroutes any non-person owner to Gaby and records it, and `dResolveDm_`
+ * refuses to resolve anyone who is not in `D_PEOPLE`. Two independent
+ * mechanisms, so it is structural rather than conventional.
  */
 
 /* ===================== Configuration — FILL THESE IN ===================== */
@@ -81,6 +91,12 @@ var D_ENGINE_FANOUT = [
   'Collection — folder', 'Collection — client video link',
   'Collection — Meet', 'Collection — Loom', 'Collection — coach notice'
 ];
+/**
+ * The ONLY people who can own a task (D-094). Coaches are never owners: a coach
+ * who has not acted is Gaby's "chase the coach" task. Mirrors TDConfig.PEOPLE.
+ */
+var D_PEOPLE = ['Gaby', 'Miguel', 'Joey', 'Bernardo'];
+
 var D_S = {
   NOMINATION_LOGGED: 'Nomination — logged',
   NOMINATION_WARMUP: 'Nomination — coach warm-up done',
@@ -100,6 +116,26 @@ var D_S = {
   PUBLISHED:         'Publish — live',
   DECLINED:          'Pipeline — declined',
   DROPPED:           'Pipeline — dropped',
+
+  /* --- the v2 ladder (D-090/D-094). Mirrors dashboard/flows.js rung for rung. --- */
+  OUTREACH_ACCEPTED:     'Outreach — client accepted',
+  OUTREACH_COACH_NOT_MSG:'Outreach — coach not messaged',
+  OUTREACH_BERNARDO_NUDGED:'Outreach — Bernardo nudged coach',
+  OUTREACH_NO_REPLY:     'Outreach — no reply',
+  OUTREACH_FOLLOWUP:     'Outreach — follow-up sent',
+  OUTREACH_COACH_TOLD:   'Outreach — coach told',
+  INVITE_INSTRUCTIONS:   'Invite — instructions email sent',
+  VIDEO_CHECKED:         'Collection — video checked',
+  VIDEO_FOLLOWUP:        'Collection — video follow-up sent',
+  VIDEO_COACH_TOLD:      'Collection — video coach told',
+  COACH_FORM_CHASED:     'Collection — coach form chased',
+  COACH_FORM_NUDGED:     'Collection — coach form nudged',
+  COACH_NOTICE:          'Collection — coach notice',
+  CLIENT_VIDEO_LINK:     'Collection — client video link',
+  PRODUCTION_CHECKIN_ACK:'Production — check-in acknowledged',
+  PRODUCTION_CHASED:     'Production — chased',
+  APPROVAL_ESCALATED:    'Approval — escalated to Bernardo',
+  APPROVAL_BERNARDO_NUDGED:'Approval — Bernardo nudged',
 
   /* --- raffle (Phase 5) --- */
   // Engine-owned, written by the preferences-form bridge (D-098). The review
@@ -313,10 +349,24 @@ function dRaffle_(list, settings) {
 /* ===================== Read + fold ===================== */
 
 function dReadSettings_() {
+  // The v2 keys (D-094), same names and same defaults as TDConfig.SETTINGS_DEFAULTS.
+  // The tab wins; these only backfill a missing key, exactly as the frontend does.
   var out = {
-    nominationWarmupHours: 24, outreachFollowupHours: 72, inviteUploadFollowupHours: 96,
-    collectingStaleHours: 120, producingPieceHours: 168, approvalPendingHours: 72,
-    bufferTargetWeeks: 4, activeMonth: ''
+    outreachCoachNotMessagedHours: 24,
+    outreachReplyCheckHours:       24,
+    outreachFollowup1Hours:        24,
+    outreachFollowup2Hours:        48,
+    outreachCoachToldHours:        48,
+    videoCheckHours:               48,
+    coachFormFollowupHours:        24,
+    coachFormEscalateHours:        24,
+    collectingStaleHours:          120,
+    contentCheckinDays:            5,
+    contentEscalateDays:           7,
+    approvalEscalateHours:         48,
+    bufferTargetWeeks:             4,
+    activeMonth:                   '',
+    coachFormUrl:                  ''
   };
   var sh = SpreadsheetApp.openById(DIGEST.SHEET_ID).getSheetByName(DIGEST.SETTINGS_TAB);
   if (!sh) return out;
@@ -390,8 +440,12 @@ function dFold_() {
   var out = [];
   Object.keys(groups).forEach(function (k) {
     var evs = groups[k];
-    var last = {};
-    evs.forEach(function (e) { last[dNorm_(e.stage)] = e; });   // last write wins
+    var last = {}, repeats = {};
+    evs.forEach(function (e) {
+      var kk = dNorm_(e.stage);
+      last[kk] = e;                                   // last write wins
+      repeats[kk] = (repeats[kk] || 0) + 1;           // the v2 ladder counts presses
+    });
     function L(s) { return last[dNorm_(s)] || null; }
 
     function inputState(stageList, classify) {
@@ -421,10 +475,11 @@ function dFold_() {
     };
     function arrived(s) { return s === 'received' || s === 'partial'; }
 
+    // `.at` matters: flowApproval anchors on the NEWEST piece timestamp.
     var pieces = {}, done = 0, lastPiece = NaN;
     D_PIECES.forEach(function (p) {
       var e = L(p.stage);
-      pieces[p.key] = !!e;
+      pieces[p.key] = { done: !!e, at: e ? e.ts : NaN };
       if (e) { done++; if (!isFinite(lastPiece) || e.ts > lastPiece) lastPiece = e.ts; }
     });
 
@@ -462,6 +517,12 @@ function dFold_() {
       hours: isFinite(at) ? (Date.now() - at) / 36e5 : NaN,
       inputs: inputs, arrived: arrived, pieces: pieces, piecesDone: done,
       complete: !!L(D_S.COMPLETE),
+      /* --- what the v2 flows read (mirror of state-builder.js) --- */
+      lastByStage: last, repeats: repeats,
+      allPiecesDone: done === D_PIECES.length,
+      collectionComplete: !!L(D_S.COMPLETE),
+      approved: !!L(D_S.APPROVED),
+      terminal: stage === 'closed',
       raffle: rComp,
       raffleMonth: rMonth.month,
       raffleMoved: rMonth.moved,
@@ -478,133 +539,481 @@ function dFold_() {
   return out;
 }
 
-/* ===================== Rules (mirror of alerts.js) ===================== */
+/* ===================== Rules — Task Model v2 (D-090/D-094) =====================
+ *
+ * A rung-for-rung port of dashboard/flows.js, plus alerts.js's non-ladder
+ * items. Before this, the digest still ran the v1 stage-based rules and said
+ * different things than the queue Gaby actually works from — same data, two
+ * answers. `dFingerprint_()` now makes them comparable in one string, and
+ * `selfCheck()` prints it.
+ *
+ * THE INVARIANTS, enforced here rather than assumed:
+ *   EVERY OWNER IS A REAL DASHBOARD USER. Coaches are NEVER owners (D-094) —
+ *   a coach who has not acted is Gaby's "chase the coach" task. `dAdd_` will
+ *   not let a non-person own a task, and `dResolveDm_` cannot resolve one.
+ *   ONE TASK PER FLOW PER CLIENT. Rungs are sequential.
+ *   EVERY THRESHOLD COMES FROM THE SETTINGS TAB. Nothing is timed in code.
+ * ============================================================================= */
 
-function dTasks_() {
-  var st = dReadSettings_(), roster = dReadRoster_(), list = dFold_();
-  var tasks = [];
-  function add(owner, channel, title, detail, sev) {
-    tasks.push({ owner: owner, channel: channel || 'dm', title: title, detail: detail || '', sev: sev });
-  }
-  function sev(h, thr) { return (isFinite(h) && h > thr) ? 'overdue' : 'due'; }
+var D_HOUR = 36e5;
+var D_DAY = 24 * D_HOUR;
 
-  list.forEach(function (t) {
-    if (t.stage === 'closed') return;
-    var r = roster.byEmail[t.email] || {};
-    var name = r.name || t.email;
-    var coach = r.coach || '';
-    var h = t.hours;
+/** Per-testimonial helpers, mirroring flows.js `helpersFor`. */
+function dHelpers_(t) {
+  return {
+    last:  function (s) { return t.lastByStage[dNorm_(s)] || null; },
+    count: function (s) { return t.repeats[dNorm_(s)] || 0; },
+    has:   function (s) { return !!t.lastByStage[dNorm_(s)]; }
+  };
+}
 
-    if (t.stage === 'nominated') {
-      add('Gaby', 'dm', 'Nudge ' + (coach || 'the coach') + ' — warm-up not done for ' + name,
-          Math.round(h) + 'h since nomination', sev(h, st.nominationWarmupHours));
-    }
-    if (t.stage === 'outreach') {
-      add('Gaby', 'dm', 'Follow up with ' + name + ' — no answer to the outreach',
-          Math.round(h) + 'h since outreach', sev(h, st.outreachFollowupHours));
-    }
-    if (t.stage === 'invited') {
-      var late = h > st.inviteUploadFollowupHours;
-      add('Gaby', 'dm',
-          late ? 'No video after ' + Math.round(h) + 'h — nudge ' + name
-               : 'Check folder 03 for ' + name + "'s video",
-          'Nothing detects the upload — the folder has to be checked.',
-          sev(h, st.inviteUploadFollowupHours));
-    }
-    if (t.stage === 'collecting') {
-      if (!t.arrived(t.inputs.coachForm.state)) {
-        add(coach || 'Gaby', 'dm', 'Fill the coach form for ' + name, '', sev(h, st.collectingStaleHours));
-      }
-      if (!t.arrived(t.inputs.everfit.state)) {
-        add('Gaby', 'dm', 'Pull Everfit data for ' + name, 'Blocks Producing.', sev(h, st.collectingStaleHours));
-      }
-      if (!t.arrived(t.inputs.photos.state)) {
-        add('Gaby', 'dm', 'Pull photos for ' + name, 'Blocks Producing.', sev(h, st.collectingStaleHours));
-      }
-      // The gate: video + both manual pulls. Meet/Loom never block.
-      if (!t.complete && t.arrived(t.inputs.video.state) &&
-          t.arrived(t.inputs.everfit.state) && t.arrived(t.inputs.photos.state)) {
-        add('Gaby', 'dm', 'Mark collection complete for ' + name,
-            'Everything required is in — this unlocks Producing.', sev(h, st.collectingStaleHours));
-      }
-    }
-    if (t.stage === 'producing') {
-      D_PIECES.forEach(function (p) {
-        if (!t.pieces[p.key]) {
-          add(p.owner, 'channel', p.label + ' for ' + name,
-              t.piecesDone + '/' + D_PIECES.length + ' pieces done', sev(h, st.producingPieceHours));
-        }
+/**
+ * One rung, or null if its threshold has not passed. Mirrors flows.js `rung`.
+ * `overdue` means a full interval has gone by on top of the wait.
+ */
+function dRung_(o) {
+  if (!o.anchor || !isFinite(o.anchor.ts)) return null;
+  var wait = o.hours * D_HOUR;
+  var due = o.anchor.ts + wait;
+  var now = Date.now();
+  if (now < due) return null;
+  return {
+    flow: o.flow, rung: o.rung, owner: o.owner,
+    title: o.title, detail: o.detail || '',
+    waitedHours: (now - o.anchor.ts) / D_HOUR,
+    sev: (wait > 0 && now >= due + wait) ? 'overdue' : 'due'
+  };
+}
+
+/* ---------- FLOW 1+2 · Outreach — Gaby, escalating to Bernardo ---------- */
+
+function dFlowOutreach_(t, s, h, v) {
+  if (h.has(D_S.OUTREACH_ACCEPTED) || h.has(D_S.OUTREACH_COACH_TOLD)) return null;
+
+  var sent = h.last(D_S.OUTREACH_SENT);
+
+  if (!sent) {
+    var notMsg = h.count(D_S.OUTREACH_COACH_NOT_MSG);
+    var lastNot = h.last(D_S.OUTREACH_COACH_NOT_MSG);
+    var nudged = h.last(D_S.OUTREACH_BERNARDO_NUDGED);
+
+    if (notMsg >= 2 && (!nudged || nudged.ts < lastNot.ts)) {
+      return dRung_({
+        flow: 'outreach', rung: 'bernardo', owner: 'Bernardo', hours: 0, anchor: lastNot,
+        title: v.coach + " hasn't messaged " + v.Client + ' after two reminders. Nudge them.',
+        detail: 'Gaby cannot start the outreach until the coach has told the client to expect it.'
       });
     }
-    if (t.stage === 'review') {
-      add('Joey', 'dm', 'Approve ' + name + ' — all five pieces are in', '', sev(h, st.approvalPendingHours));
-    }
-    if (t.stage === 'scheduled') {
-      if (!t.schedPost)  add('Gaby', 'dm', 'Schedule the collaboration post for ' + name, '', sev(h, st.approvalPendingHours));
-      if (!t.schedEmail) add('Gaby', 'dm', 'Schedule the weekly email for ' + name, '', sev(h, st.approvalPendingHours));
-    }
-    t.flags.forEach(function (f) {
-      add('Gaby', 'dm', 'Review the ' + f + ' flag for ' + name,
-          'Does not block the pipeline.', 'review');
-    });
-    if (!roster.byEmail[t.email]) {
-      add('Gaby', 'dm', 'Resolve the identity for ' + t.email, 'Not in the roster.', 'review');
-    }
 
-    /* --- raffle post-draw, PARALLEL (D-080) ---------------------------------
-     * Mirrors flows.js flowRaffleMonth / flowRaffleMessages. Two independent
-     * items, never chained: the old SOP sent the winner message only after the
-     * contract was updated, and D-080 corrects that. No threshold — they are
-     * immediate on confirmation and no waiting period is defined in Settings. */
-    if (t.raffleWon && !t.raffleMonthAdded) {
-      add('Miguel', 'dm', "Add " + name + "'s extra raffle month in the Master Sheet",
-          'Won the ' + t.raffleMonth + ' raffle. The dashboard never writes to the Master Sheet, ' +
-          'so this is done by hand. Leave the note too.', 'due');
+    var anchor = nudged || lastNot || h.last(D_S.NOMINATION_LOGGED);
+    return dRung_({
+      flow: 'outreach', rung: notMsg ? 'retry' : 'start', owner: 'Gaby',
+      hours: lastNot ? s.outreachCoachNotMessagedHours : 0, anchor: anchor,
+      title: notMsg
+        ? 'Check if ' + v.coach + ' messaged ' + v.Client + ', then do the outreach.'
+        : 'Do outreach to ' + v.Client + ' (if the coach already messaged them).',
+      detail: notMsg ? 'Waiting on the coach since ' + Math.round((Date.now() - lastNot.ts) / D_HOUR) + 'h ago.' : ''
+    });
+  }
+
+  var noReply = h.last(D_S.OUTREACH_NO_REPLY);
+  if (!noReply) {
+    return dRung_({
+      flow: 'outreach', rung: 'reply-check', owner: 'Gaby',
+      hours: s.outreachReplyCheckHours, anchor: sent,
+      title: 'Did ' + v.Client + " reply in Everfit that they're in?"
+    });
+  }
+
+  var fu = h.count(D_S.OUTREACH_FOLLOWUP);
+  var lastFu = h.last(D_S.OUTREACH_FOLLOWUP);
+
+  if (fu === 0) {
+    return dRung_({
+      flow: 'outreach', rung: 'fu1', owner: 'Gaby',
+      hours: s.outreachFollowup1Hours, anchor: noReply,
+      title: 'Send follow-up #1 to ' + v.Client + '.'
+    });
+  }
+  if (fu === 1) {
+    return dRung_({
+      flow: 'outreach', rung: 'fu2', owner: 'Gaby',
+      hours: s.outreachFollowup2Hours, anchor: lastFu,
+      title: 'Send the last follow-up to ' + v.Client + '.'
+    });
+  }
+  return dRung_({
+    flow: 'outreach', rung: 'coach-told', owner: 'Gaby',
+    hours: s.outreachCoachToldHours, anchor: lastFu,
+    title: 'Tell ' + v.coach + ' that ' + v.Client + " didn't respond this month."
+  });
+}
+
+/* ---------- FLOW 3 · Client video — Gaby ----------
+ * Anchored on the INSTRUCTIONS EMAIL, not the fan-out: the clock starts when
+ * the client has actually been told what to do. */
+
+function dFlowVideo_(t, s, h, v) {
+  if (t.arrived(t.inputs.video.state)) return null;
+  if (h.has(D_S.VIDEO_COACH_TOLD)) return null;
+
+  var start = h.last(D_S.INVITE_INSTRUCTIONS);
+  if (!start) return null;                       // the clock has not started
+
+  var fu = h.count(D_S.VIDEO_FOLLOWUP);
+  var lastFu = h.last(D_S.VIDEO_FOLLOWUP);
+  var checked = h.last(D_S.VIDEO_CHECKED);
+
+  if (fu >= 2) {
+    return dRung_({
+      flow: 'video', rung: 'coach-told', owner: 'Gaby',
+      hours: s.videoCheckHours, anchor: lastFu,
+      title: 'Tell ' + v.coach + ' that ' + v.Client + " hasn't uploaded their video."
+    });
+  }
+
+  // The check clock re-arms on a plain check, so "checked, not there" does not
+  // burn one of the two client follow-ups.
+  var anchor = lastFu || checked || start;
+  if (checked && lastFu && checked.ts > lastFu.ts) anchor = checked;
+
+  return dRung_({
+    flow: 'video', rung: fu === 0 ? 'check' : 'fu2', owner: 'Gaby',
+    hours: s.videoCheckHours, anchor: anchor,
+    title: fu === 0
+      ? 'Check if ' + v.Client + ' uploaded their video.'
+      : 'Check ' + v.Client + "'s video, and send the last follow-up if it isn't there.",
+    detail: 'Nothing fires when a client uploads. Open folder 03 and look.'
+  });
+}
+
+/* ---------- FLOW 4 · Coach form — Gaby, then Bernardo ----------
+ * ⚠️ THE COACH IS NEVER THE OWNER. The coach must fill the form, so the task is
+ * Gaby's "chase the coach" (D-094). The v1 rule DM'd the coach directly. */
+
+function dFlowCoachForm_(t, s, h, v) {
+  if (t.arrived(t.inputs.coachForm.state)) return null;
+
+  var dm = h.last(D_S.COACH_NOTICE);
+  if (!dm) return null;                          // the coach has not been asked yet
+
+  var chased = h.last(D_S.COACH_FORM_CHASED);
+  var nudged = h.last(D_S.COACH_FORM_NUDGED);
+
+  if (chased && (!nudged || nudged.ts < chased.ts)) {
+    return dRung_({
+      flow: 'coachForm', rung: 'bernardo', owner: 'Bernardo',
+      hours: s.coachFormEscalateHours, anchor: chased,
+      title: v.coach + " isn't filling " + v.Client + "'s form despite the follow-up."
+    });
+  }
+
+  return dRung_({
+    flow: 'coachForm', rung: 'chase', owner: 'Gaby',
+    hours: s.coachFormFollowupHours, anchor: nudged || dm,
+    title: v.coach + " hasn't filled the form for " + v.Client + '; send a follow-up.'
+  });
+}
+
+/* ---------- FLOW 5 · Everfit + photos — Gaby only, passive ---------- */
+
+function dFlowManualPulls_(t, s, h, v) {
+  if (t.collectionComplete) return null;
+  var A = t.arrived;
+  var everfit = A(t.inputs.everfit.state);
+  var photos = A(t.inputs.photos.state);
+  var video = A(t.inputs.video.state);
+
+  if (video && everfit && photos) {
+    return {
+      flow: 'manualPulls', rung: 'complete', owner: 'Gaby',
+      title: 'Mark ' + v.Client + "'s collection complete.",
+      detail: 'The video is in and both of your pulls are marked. This is what unlocks production.',
+      waitedHours: NaN, sev: 'due'
+    };
+  }
+
+  if (everfit && photos) return null;            // waiting on the video; Flow 3 owns that
+
+  var missing = [];
+  if (!everfit) missing.push('Everfit data');
+  if (!photos) missing.push('photos');
+
+  var anchor = h.last(D_S.VIDEO_UPLOADED) || h.last(D_S.CLIENT_VIDEO_LINK);
+  var stale = anchor && isFinite(anchor.ts) &&
+              (Date.now() - anchor.ts) / D_HOUR > s.collectingStaleHours;
+
+  return {
+    flow: 'manualPulls', rung: stale ? 'stale' : 'pending', owner: 'Gaby',
+    title: stale
+      ? v.Client + ' has been waiting ' + Math.round(s.collectingStaleHours / 24) + ' days on your ' + missing.join(' and ') + '.'
+      : 'Pull ' + missing.join(' and ') + ' for ' + v.Client + '.',
+    detail: 'Needed before production can start.',
+    waitedHours: anchor ? (Date.now() - anchor.ts) / D_HOUR : NaN,
+    sev: stale ? 'overdue' : 'reminder'
+  };
+}
+
+/* ---------- FLOW 6 · Content — Miguel, then Gaby. PER CLIENT, never per piece.
+ * The v1 rule emitted one task PER PIECE, which is the difference D-090 (b)
+ * corrected: one follow-up per client, not five. ---------- */
+
+function dFlowContent_(t, s, h, v) {
+  if (!t.collectionComplete || t.allPiecesDone) return null;
+
+  var day0 = h.last(D_S.COMPLETE);
+  if (!day0) return null;
+
+  var pending = D_PIECES.filter(function (p) { return !t.pieces[p.key].done; });
+  var pendingText = pending.length + ' of ' + D_PIECES.length + ' pieces still open';
+
+  var chased = h.last(D_S.PRODUCTION_CHASED);
+  var elapsedDays = (Date.now() - day0.ts) / D_DAY;
+
+  if (elapsedDays >= s.contentEscalateDays) {
+    var r = dRung_({
+      flow: 'content', rung: 'escalate', owner: 'Gaby',
+      hours: chased ? s.contentEscalateDays * 24 : 0,
+      anchor: chased || day0,
+      title: "Miguel is running late on " + v.Client + "'s content. Follow up with him.",
+      detail: pendingText + '. ' + Math.round(elapsedDays) + ' days since production started.'
+    });
+    if (r) return r;
+  }
+
+  var ack = h.last(D_S.PRODUCTION_CHECKIN_ACK);
+  if (ack && ack.ts > day0.ts) return null;      // he replied; Gaby's rung still fires at 7d
+
+  return dRung_({
+    flow: 'content', rung: 'checkin', owner: 'Miguel',
+    hours: s.contentCheckinDays * 24, anchor: day0,
+    title: "How's the content for " + v.Client + ' coming along?',
+    detail: pendingText + '.'
+  });
+}
+
+/* ---------- FLOW 7 · Approval — Joey, then Gaby, then Bernardo ---------- */
+
+function dFlowApproval_(t, s, h, v) {
+  if (!t.allPiecesDone || t.approved) return null;
+
+  var readyTs = D_PIECES.reduce(function (m, p) {
+    var at = t.pieces[p.key].at; return isFinite(at) && at > m ? at : m;
+  }, 0);
+  if (!readyTs) return null;
+  var ready = { ts: readyTs };
+
+  var escalated = h.last(D_S.APPROVAL_ESCALATED);
+  var nudged = h.last(D_S.APPROVAL_BERNARDO_NUDGED);
+
+  if (escalated && (!nudged || nudged.ts < escalated.ts)) {
+    return dRung_({
+      flow: 'approval', rung: 'bernardo', owner: 'Bernardo', hours: 0, anchor: escalated,
+      title: 'Nudge Joey on ' + v.Client + "'s approval."
+    });
+  }
+
+  var waited = (Date.now() - (nudged ? nudged.ts : ready.ts)) / D_HOUR;
+  if (waited >= s.approvalEscalateHours) {
+    return dRung_({
+      flow: 'approval', rung: 'escalate', owner: 'Gaby',
+      hours: s.approvalEscalateHours, anchor: nudged || ready,
+      title: "Joey hasn't approved " + v.Client + '. Tell Bernardo.'
+    });
+  }
+
+  return dRung_({
+    flow: 'approval', rung: 'approve', owner: 'Joey', hours: 0, anchor: ready,
+    title: 'Approve ' + v.Client + "'s testimonial. All five pieces are ready.",
+    detail: 'Every link is gathered on the client card.'
+  });
+}
+
+/* ---------- FLOW 8+9 · Raffle post-draw — PARALLEL, never chained (D-080) ---------- */
+
+function dFlowRaffleMonth_(t, s, h, v) {
+  var won = h.last(D_S.RAFFLE_WINNER);
+  if (!won || h.has(D_S.RAFFLE_MONTH_ADDED)) return null;
+  return dRung_({
+    flow: 'raffleMonth', rung: 'addMonth', owner: 'Miguel', hours: 0, anchor: won,
+    title: 'Add ' + v.Client + "'s extra raffle month in the Master Sheet.",
+    detail: 'They won the ' + v.month + ' raffle. The month goes in the client Master Sheet, ' +
+            'which the dashboard never writes to, so this one is done by hand. Leave the note too.'
+  });
+}
+
+function dFlowRaffleMessages_(t, s, h, v) {
+  var won = h.last(D_S.RAFFLE_WINNER);
+  if (!won || h.has(D_S.RAFFLE_MESSAGES)) return null;
+  return dRung_({
+    flow: 'raffleMessages', rung: 'sendMessages', owner: 'Gaby', hours: 0, anchor: won,
+    title: 'Send the ' + v.month + ' raffle messages: ' + v.Client + ' won, and thank the rest.',
+    detail: 'The winner message plus the thank-you to everyone else who entered. ' +
+            'Both go out through Everfit.'
+  });
+}
+
+var D_FLOWS = [dFlowOutreach_, dFlowVideo_, dFlowCoachForm_, dFlowManualPulls_,
+               dFlowContent_, dFlowApproval_, dFlowRaffleMonth_, dFlowRaffleMessages_];
+
+/** Every flow for one testimonial. At most one task per flow. */
+function dEvaluate_(t, s, roster) {
+  if (t.terminal) return [];
+  var h = dHelpers_(t);
+  var r = roster.byEmail[t.email] || {};
+  var name = r.name || t.email;
+  var v = {
+    Client: name,
+    coach: r.coach || 'the coach',
+    month: t.raffleMonth
+  };
+  var out = [];
+  D_FLOWS.forEach(function (fn) {
+    var task = fn(t, s, h, v);
+    if (!task) return;
+    task.clientKey = t.key;
+    task.clientName = name;
+    out.push(task);
+  });
+  return out;
+}
+
+/* ---------- Non-ladder items (mirror of alerts.js reviewTasks) ---------- */
+
+function dReviewTasks_(list, roster) {
+  var out = [];
+  list.forEach(function (t) {
+    if (t.terminal) return;
+    var r = roster.byEmail[t.email] || {};
+    var name = r.name || t.email;
+
+    t.flags.forEach(function (f) {
+      var auto = (f === 'meet' || f === 'loom' || f === 'coachForm');
+      out.push({
+        flow: 'review', rung: 'flag-' + f, owner: 'Gaby', sev: 'review',
+        title: 'Review the ' + f + ' flag for ' + name,
+        detail: auto ? 'Does not hold up the pipeline. It often just means this client has none.' : '',
+        clientKey: t.key, clientName: name, waitedHours: NaN
+      });
+    });
+
+    if (!roster.byEmail[t.email]) {
+      out.push({
+        flow: 'review', rung: 'identity', owner: 'Gaby', sev: 'review',
+        title: 'Resolve the identity for ' + t.email,
+        detail: 'Not in the roster. The system never guesses.',
+        clientKey: t.key, clientName: name, waitedHours: NaN
+      });
     }
-    if (t.raffleWon && !t.raffleMessagesSent) {
-      add('Gaby', 'dm', 'Send the ' + t.raffleMonth + ' raffle messages: ' + name + ' won, and thank the rest',
-          'Winner message plus the thank-you to everyone else who entered, through Everfit.', 'due');
+  });
+  return out;
+}
+
+/* ---------- The month-level raffle draw (mirror of alerts.js raffleTasks) ---------- */
+
+function dRaffleTasks_(list, st) {
+  var raf = dRaffle_(list, st);
+  var out = [];
+  if (raf.drawDue) {
+    out.push({
+      flow: 'raffleDraw', rung: 'draw', owner: 'Gaby',
+      sev: raf.drawState === 'overdue' ? 'overdue' : 'due',
+      title: 'Run the ' + raf.month + ' raffle draw — ' + raf.eligible.length +
+             ' eligible ' + (raf.eligible.length === 1 ? 'entry' : 'entries'),
+      detail: (raf.drawState === 'overdue' ? raf.month + ' is over and no winner was drawn. ' : '') +
+              'The draw is manual: open the raffle view, draw, and confirm.',
+      clientKey: '', clientName: '', waitedHours: NaN
+    });
+  }
+  if (raf.doubleWinner) {
+    out.push({
+      flow: 'raffleDraw', rung: 'double', owner: 'Bernardo', sev: 'review',
+      title: 'Two raffle winners are recorded for ' + raf.month,
+      detail: 'The draw cannot produce this, so it means a double write or a hand-edited log.',
+      clientKey: '', clientName: '', waitedHours: NaN
+    });
+  }
+  return out;
+}
+
+/* ---------- The walker ---------- */
+
+var D_RANK = { overdue: 0, due: 1, reminder: 2, review: 3 };
+
+/**
+ * @returns {{tasks:Array, problems:Array}}
+ *
+ * `problems` is not decoration. A non-person owner means a coach is about to be
+ * DM'd a task the system is designed never to give them, so it is REROUTED to
+ * Gaby and recorded, rather than sent or silently dropped.
+ */
+function dTasks_(withProblems) {
+  var st = dReadSettings_(), roster = dReadRoster_(), list = dFold_();
+  var tasks = [], problems = [];
+
+  list.forEach(function (t) {
+    var seen = {};
+    dEvaluate_(t, st, roster).forEach(function (task) {
+      if (seen[task.flow]) {
+        problems.push("Two tasks from flow '" + task.flow + "' for " + t.key);
+        return;
+      }
+      seen[task.flow] = true;
+      tasks.push(task);
+    });
+  });
+
+  tasks = tasks.concat(dReviewTasks_(list, roster));
+  tasks = tasks.concat(dRaffleTasks_(list, st));
+
+  // THE GUARD. Coaches are never owners (D-094).
+  tasks.forEach(function (t) {
+    if (D_PEOPLE.indexOf(t.owner) < 0) {
+      problems.push("Task '" + t.title + "' had owner '" + t.owner +
+                    "', who is not a dashboard user. Rerouted to Gaby.");
+      t.reroutedFrom = t.owner;
+      t.owner = 'Gaby';
     }
   });
 
-  /* --- the draw itself: a MONTH-level task, not a per-client one -----------
-   * Mirrors alerts.js raffleTasks. No threshold: "eligible entries exist and
-   * no winner yet" is a fact, and a month that ended undrawn is late by the
-   * calendar. Neither is a timing policy, so neither needs a Settings key. */
-  var raf = dRaffle_(list, st);
-  if (raf.drawDue) {
-    add('Gaby', 'dm',
-        'Run the ' + raf.month + ' raffle draw — ' + raf.eligible.length +
-          ' eligible ' + (raf.eligible.length === 1 ? 'entry' : 'entries'),
-        (raf.drawState === 'overdue' ? raf.month + ' is over and no winner was drawn. ' : '') +
-        'The draw is manual: open the raffle view, draw, and confirm. Confirming freezes who ' +
-        'qualified today and fires Miguel\'s and Gaby\'s tasks at once.',
-        raf.drawState === 'overdue' ? 'overdue' : 'due');
-  }
-  if (raf.doubleWinner) {
-    add('Bernardo', 'dm', 'Two raffle winners are recorded for ' + raf.month,
-        'The draw cannot produce this, so it means a double write or a hand-edited log. ' +
-        'Nothing can be deleted (append-only).', 'review');
-  }
+  tasks.sort(function (a, b) {
+    if (D_RANK[a.sev] !== D_RANK[b.sev]) return D_RANK[a.sev] - D_RANK[b.sev];
+    var aw = isFinite(a.waitedHours) ? a.waitedHours : -1;
+    var bw = isFinite(b.waitedHours) ? b.waitedHours : -1;
+    return bw - aw;
+  });
 
-  return tasks;
+  return withProblems ? { tasks: tasks, problems: problems } : tasks;
+}
+
+/**
+ * A canonical, comparable summary of the task list — the D-088 drift check for
+ * the half that is not the raffle. `Alerts.fingerprint(state)` produces exactly
+ * this string in the browser; if the two differ, the two implementations have
+ * drifted and the digest is telling the team something the queue does not say.
+ */
+function dFingerprint_() {
+  return dTasks_().map(function (t) {
+    return [t.owner, t.flow, t.rung, t.sev, t.clientKey || ''].join('|');
+  }).sort().join('\n');
 }
 
 /* ===================== Rendering + sending ===================== */
 
 function dRender_(owner, tasks) {
-  var over = tasks.filter(function (t) { return t.sev === 'overdue'; });
-  var due  = tasks.filter(function (t) { return t.sev === 'due'; });
-  var rev  = tasks.filter(function (t) { return t.sev === 'review'; });
+  function of(sev) { return tasks.filter(function (t) { return t.sev === sev; }); }
   var L = ['*Your testimonial queue — ' + Utilities.formatDate(new Date(), DIGEST_TZ, 'EEE d MMM') + '*'];
   function block(title, arr) {
     if (!arr.length) return;
     L.push('', title);
     arr.forEach(function (t) { L.push('• ' + t.title + (t.detail ? '  _' + t.detail + '_' : '')); });
   }
-  block(':rotating_light: *Overdue*', over);
-  block(':hourglass: *Due*', due);
-  block(':mag: *Needs review*', rev);
+  block(':rotating_light: *Overdue*', of('overdue'));
+  block(':hourglass: *Due*', of('due'));
+  // The v2 model has a fourth tier. Without this block, Flow 5's passive
+  // reminders were computed and then silently dropped before sending.
+  block(':small_blue_diamond: *Reminders*', of('reminder'));
+  block(':mag: *Needs review*', of('review'));
   L.push('', '<' + DIGEST.DASHBOARD_URL + '|Open the dashboard>');
   return L.join('\n');
 }
@@ -622,8 +1031,19 @@ function dSlack_(method, payload) {
   return body;
 }
 
-function dResolveDm_(owner, roster) {
-  var email = DIGEST.PEOPLE_SLACK[owner] || roster.coachSlack[owner] || '';
+/**
+ * ⚠️ THE COACH FALLBACK IS GONE, DELIBERATELY.
+ *
+ * This used to read `roster.coachSlack[owner]` when a name was not in
+ * PEOPLE_SLACK — which meant a task that had wrongly landed on a coach
+ * RESOLVED and was DM'd to them. Coaches are never owners (D-094), so a name
+ * that is not a dashboard user must fail to resolve rather than quietly find an
+ * address. Combined with `dTasks_` rerouting non-people to Gaby, a coach can no
+ * longer be messaged by two independent mechanisms rather than by convention.
+ */
+function dResolveDm_(owner) {
+  if (D_PEOPLE.indexOf(owner) < 0) return null;     // structurally unreachable
+  var email = DIGEST.PEOPLE_SLACK[owner] || '';
   if (!email) return null;
   var u = dSlack_('users.lookupByEmail?email=' + encodeURIComponent(email), {});
   return u.user && u.user.id;
@@ -634,24 +1054,42 @@ function dResolveDm_(owner, roster) {
  * Run this first, every time, before touching sendDailyDigest().
  */
 function previewDigest() {
-  var tasks = dTasks_();
+  var r = dTasks_(true);
+  var tasks = r.tasks;
   var byOwner = {};
   tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
 
   var out = ['=== DIGEST PREVIEW — nothing sent ===', 'tasks: ' + tasks.length, ''];
-  Object.keys(byOwner).sort().forEach(function (o) {
-    var dm = byOwner[o].filter(function (t) { return t.channel === 'dm'; });
-    var ch = byOwner[o].filter(function (t) { return t.channel === 'channel'; });
-    if (dm.length) {
-      out.push('--- DM to ' + o + ' (' + (DIGEST.PEOPLE_SLACK[o] || 'NO ADDRESS SET') + ') ---');
-      out.push(dRender_(o, dm), '');
-    }
-    if (ch.length) {
-      out.push('--- content channel, owner ' + o + ' ---');
-      ch.forEach(function (t) { out.push('• ' + t.title); });
-      out.push('');
-    }
+
+  if (r.problems.length) {
+    out.push('!!! PROBLEMS — fix before sending !!!');
+    r.problems.forEach(function (p) { out.push('  - ' + p); });
+    out.push('');
+  }
+
+  D_PEOPLE.forEach(function (o) {
+    if (!byOwner[o]) return;
+    out.push('--- DM to ' + o + ' (' + (DIGEST.PEOPLE_SLACK[o] || 'NO ADDRESS SET — this DM will be SKIPPED') + ') ---');
+    out.push(dRender_(o, byOwner[o]), '');
   });
+
+  // Anyone left is not a dashboard user, which dTasks_ should have made
+  // impossible. Printed loudly rather than hidden.
+  Object.keys(byOwner).forEach(function (o) {
+    if (D_PEOPLE.indexOf(o) >= 0) return;
+    out.push('!!! NON-PERSON OWNER: ' + o + ' — coaches are never owners (D-094) !!!');
+    byOwner[o].forEach(function (t) { out.push('  • ' + t.title); });
+    out.push('');
+  });
+
+  var content = tasks.filter(function (t) { return t.flow === 'content'; });
+  if (content.length) {
+    out.push('--- also posted to the content channel (' +
+             (DIGEST.CONTENT_CHANNEL_ID || 'NO CHANNEL SET — this post will be SKIPPED') + ') ---');
+    content.forEach(function (t) { out.push('• ' + t.title + ' — *' + t.owner + '*'); });
+    out.push('');
+  }
+
   var msg = out.join('\n');
   Logger.log(msg);
   return msg;
@@ -659,23 +1097,33 @@ function previewDigest() {
 
 /** Sends. Only ever called by the installed trigger, or deliberately by hand. */
 function sendDailyDigest() {
-  var roster = dReadRoster_();
-  var tasks = dTasks_();
+  var r = dTasks_(true);
+  var tasks = r.tasks;
+
+  // A rerouted owner means a coach was about to be messaged. Recorded in the
+  // execution log every run, not just when someone happens to look.
+  r.problems.forEach(function (p) { Logger.log('DIGEST PROBLEM: ' + p); });
+
   var byOwner = {};
   tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
 
-  Object.keys(byOwner).forEach(function (owner) {
-    var dm = byOwner[owner].filter(function (t) { return t.channel === 'dm'; });
-    if (!dm.length) return;
-    var id = dResolveDm_(owner, roster);
+  // ONLY dashboard users are ever iterated. Even if a non-person owner somehow
+  // survived dTasks_, there is no loop here that would reach them.
+  D_PEOPLE.forEach(function (owner) {
+    var mine = byOwner[owner];
+    if (!mine || !mine.length) return;
+    var id = dResolveDm_(owner);
     if (!id) { Logger.log('No Slack address for ' + owner + ' — skipped.'); return; }
-    dSlack_('chat.postMessage', { channel: id, text: dRender_(owner, dm) });
+    dSlack_('chat.postMessage', { channel: id, text: dRender_(owner, mine) });
   });
 
-  var channelTasks = tasks.filter(function (t) { return t.channel === 'channel'; });
-  if (channelTasks.length && DIGEST.CONTENT_CHANNEL_ID) {
-    var lines = ['*Production — open pieces*'];
-    channelTasks.forEach(function (t) {
+  // The content channel is a VIEW of the content flow, not a second task list —
+  // spec §5 wants production visible in the open. The same tasks already went
+  // to their owner as a DM.
+  var content = tasks.filter(function (t) { return t.flow === 'content'; });
+  if (content.length && DIGEST.CONTENT_CHANNEL_ID) {
+    var lines = ['*Production — open work*'];
+    content.forEach(function (t) {
       lines.push('• ' + t.title + ' — *' + t.owner + '*' + (t.sev === 'overdue' ? ' :rotating_light:' : ''));
     });
     lines.push('', '<' + DIGEST.DASHBOARD_URL + '|Open the dashboard>');
@@ -780,15 +1228,31 @@ function selfCheck() {
   list.forEach(function (t) { byStage[t.stage] = (byStage[t.stage] || 0) + 1; });
 
   var raf = dRaffle_(list, st);
-  var tasks = dTasks_();
+  var r = dTasks_(true);
+  var tasks = r.tasks;
   function n(pred) { return tasks.filter(pred).length; }
 
-  var problems = dSelfCheckRaffle_();
+  var problems = dSelfCheckRaffle_().concat(r.problems);
+
+  // Every owner must be a dashboard user. After dTasks_ reroutes, this can only
+  // fail if the reroute itself broke — which is exactly when it matters.
+  tasks.forEach(function (t) {
+    if (D_PEOPLE.indexOf(t.owner) < 0) {
+      problems.push('owner "' + t.owner + '" is not a dashboard user (D-094)');
+    }
+  });
+
+  var bySev = {};
+  tasks.forEach(function (t) { bySev[t.sev] = (bySev[t.sev] || 0) + 1; });
+  var byOwner = {};
+  tasks.forEach(function (t) { byOwner[t.owner] = (byOwner[t.owner] || 0) + 1; });
 
   var msg = ['=== DIGEST SELF-CHECK (read-only) ===',
              'testimonials: ' + list.length,
              'by stage: ' + JSON.stringify(byStage),
              'tasks: ' + tasks.length,
+             'by owner: ' + JSON.stringify(byOwner),
+             'by severity: ' + JSON.stringify(bySev),
              '',
              '--- raffle (mirror of dashboard/raffle.js) ---',
              'month: ' + raf.month + (dIsMonthKey_(String(st.activeMonth || '').trim())
@@ -803,10 +1267,17 @@ function selfCheck() {
              'invariants: ' + (problems.length ? 'FAILED' : 'ok'),
              problems.length ? '  - ' + problems.join('\n  - ') : '',
              '',
-             'These must match the dashboard. If they do not, this file has',
-             'drifted from dashboard/state-builder.js, raffle.js, flows.js or',
-             'alerts.js. Compare against RaffleFold.build(state) in the browser',
-             'console: month, cohort, qualifying, eligible, drawState.'].join('\n');
+             '--- TASK FINGERPRINT (D-088 drift check) ---',
+             'Run this in the browser console on the dashboard:',
+             '    Alerts.fingerprint(TDApp.state)',
+             'and compare with the block below. They must be IDENTICAL — if they',
+             'are not, the digest is telling the team something the queue does',
+             'not say, and one of the two implementations has drifted.',
+             '',
+             dFingerprint_(),
+             '',
+             'The raffle counts above must also match RaffleFold.build(state):',
+             'month, cohort, qualifying, eligible, drawState.'].join('\n');
   Logger.log(msg);
   return msg;
 }

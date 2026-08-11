@@ -624,7 +624,19 @@ Still required before it can run:
 
 ### ⚠️ It duplicates the fold — the main maintenance risk in this repo
 
-A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, and the alert rules — **and, since the raffle draw, the raffle's conditions, cohort month, eligibility, draw-due state and post-draw tasks too** (§10.9 has the function-by-function map). **That is a genuine second source of truth.** Change any of those and both must change. `selfCheck()` prints this file's stage counts, task total and raffle counts, and runs `dSelfCheckRaffle_()` for the structural invariants, so drift against the dashboard is detectable rather than silent.
+A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, **the full v2 task ladders**, and the raffle. **That is a genuine second source of truth.** Change any of those and both must change.
+
+### How drift is caught: the task fingerprint
+
+`selfCheck()` prints one `owner|flow|rung|severity|clientKey` line per task, sorted. `Alerts.fingerprint(TDApp.state)` in the browser console produces the identical string. **If they differ, the digest is telling the team something the queue does not say.** It also prints the stage counts, the raffle counts, and runs `dSelfCheckRaffle_()`.
+
+Verified equal across 18 scenarios covering every rung of every flow: the outreach ladder (start → retry → Bernardo → reply-check → fu1 → fu2 → coach-told), the video ladder, both coach-form rungs, the manual pulls (pending / stale / complete), content (check-in → escalate), approval (approve → escalate → Bernardo), the review flags, both raffle post-draw tasks, and terminal.
+
+### ⚠️ It once DM'd a coach
+
+Until the v2 port, `dTasks_` assigned *"fill the coach form"* to the **coach**, and `dResolveDm_` resolved their address from roster column J — so the first live digest would have cold-messaged a coach a task the system is designed never to give them (D-094). The v1 rules also disagreed with the queue everywhere else: one task per production **piece** instead of one per client, no overdue tier, no escalations.
+
+Both halves of the coach bug are now closed, independently: `dTasks_` reroutes any non-person owner to Gaby and records it in `problems`, and `dResolveDm_` refuses to resolve anyone outside `D_PEOPLE`. Structural, not conventional — a future edit would have to defeat both.
 
 ---
 

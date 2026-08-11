@@ -13,6 +13,42 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-10 — El digest habla el mismo idioma que la cola: modelo v2 portado y la guarda del coach
+
+Dos bloqueadores que aparecieron al preparar el lanzamiento del digest. `Digest.gs` nunca se pegó a ningún proyecto de Apps Script, así que nada de esto llegó a enviarse — pero el primer envío real habría sido incorrecto en las dos formas.
+
+### 1 · Le mandaba un DM a un coach
+
+Las reglas v1 asignaban *"fill the coach form"* al **coach**, y `dResolveDm_` resolvía su dirección desde la columna J del roster. El primer digest real le habría escrito en frío a un coach una tarea que el sistema está diseñado para nunca darle (D-094). El dashboard nunca pudo hacer esto: `alerts.js` afirma que todo owner es usuario del dashboard.
+
+Cerrado por **dos mecanismos independientes**, para que sea estructural y no una convención:
+
+- `dTasks_` **redirige a Gaby** cualquier owner que no sea persona del dashboard y lo registra en `problems`, que ahora se imprimen en el preview y en cada ejecución real.
+- `dResolveDm_` **se niega a resolver** a nadie fuera de `D_PEOPLE`. Se eliminó el fallback al roster.
+
+`sendDailyDigest` además solo itera `D_PEOPLE`, así que no queda ningún bucle que pueda alcanzar a un coach.
+
+### 2 · Seguía corriendo el modelo de tareas v1
+
+Con los mismos datos, el dashboard mostraba 20 tareas y el digest 26, y decían cosas distintas: una tarea por **pieza** de producción en vez de una por cliente (lo que D-090 (b) corrigió), sin nivel *overdue*, sin escalaciones, y con umbrales v1 que ya no existen en Settings.
+
+Portadas las ocho escaleras v2 rung por rung (`dFlow*_`), más los items sin escalera de `alerts.js`. El nivel `reminder` también se estaba **calculando y descartando** antes de enviar, porque `dRender_` solo pintaba overdue/due/review.
+
+### La verificación: el fingerprint de tareas
+
+Un solo string comparable, `owner|flow|rung|severity|clientKey` por tarea, ordenado. `Alerts.fingerprint(TDApp.state)` en la consola produce el mismo string que imprime `selfCheck()`. **Verificado idéntico en 18 escenarios** que recorren cada rung de cada flujo.
+
+La comparación encontró un fallo real: el dashboard usaba `rung: "flag"` para todos los flags, así que un cliente con dos flags producía **dos líneas idénticas** — el fingerprint no podía distinguir "ambos lados coinciden" de "ambos lados están mal igual". Ahora el rung lleva qué input está marcado.
+
+### Lo que sigue abierto
+
+- El digest **no está pegado a ningún proyecto** todavía, y no hay trigger. Nada envía.
+- Faltan `SLACK_BOT_TOKEN`, las direcciones de Slack y el channel ID.
+- `previewDigest()` **no prueba nada de Slack**: nunca llama a `UrlFetchApp`. Un preview limpio no dice que el token sirva ni que el bot esté en el canal.
+- El Event Log está vacío tras el wipe, así que el preview de hoy sale en `tasks: 0`.
+
+---
+
 ## 2026-08-10 — Phase 5: the raffle DRAW, validated live; then two fixes it exposed
 
 **The write half of the raffle** (`fad352d`), and the follow-up commit for the two defects the live test found. The system log closes the whole raffle section in one row (D-103); this entry is the repo-side record.

@@ -32,7 +32,12 @@
       t.flags.forEach(function (f) {
         var auto = (f.input === "meet" || f.input === "loom" || f.input === "coachForm");
         out.push({
-          id: t.key + "|flag-" + f.input, flow: "review", rung: "flag", owner: "Gaby", severity: "review",
+          // The rung carries WHICH input is flagged. Without it, a client with
+          // two flags produces two identical fingerprint lines, and the D-088
+          // comparison cannot tell "both sides agree" from "both sides are
+          // wrong in the same shape".
+          id: t.key + "|flag-" + f.input, flow: "review", rung: "flag-" + f.input,
+          owner: "Gaby", severity: "review",
           title: "Review the " + f.label.toLowerCase() + " flag for " + name,
           detail: (auto ? "Does not hold up the pipeline. It often just means this client has none. " : "") + f.text,
           clientKey: t.key, clientName: name, email: t.email, cycle: t.cycle,
@@ -174,5 +179,23 @@
     };
   }
 
-  root.Alerts = { build: build, RANK: RANK };
+  /**
+   * A canonical, comparable summary of the task list — the D-088 drift check.
+   *
+   * `Digest.gs dFingerprint_()` produces exactly this string from its own
+   * re-implementation. If the two differ, the digest is telling the team
+   * something the queue does not say, which is the whole failure D-088 exists
+   * to catch. Deliberately EXCLUDES titles and detail text: wording drift is
+   * cosmetic, while owner / flow / rung / severity / client is the substance.
+   *
+   * Run in the browser console and compare with what selfCheck() logs:
+   *   Alerts.fingerprint(TDApp.state)
+   */
+  function fingerprint(state) {
+    return build(state).tasks.map(function (t) {
+      return [t.owner, t.flow, t.rung, t.severity, t.clientKey || ""].join("|");
+    }).sort().join("\n");
+  }
+
+  root.Alerts = { build: build, fingerprint: fingerprint, RANK: RANK };
 })(typeof window !== "undefined" ? window : this);

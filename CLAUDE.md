@@ -48,9 +48,10 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | Rule | Frontend | Apps Script |
 |---|---|---|
 | fold, ladder, classifiers | `dashboard/state-builder.js` | `apps-script/Digest.gs` |
-| the nine task ladders | `dashboard/flows.js` | `apps-script/Digest.gs` |
 | Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
-| task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` |
+| task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |
+| the v2 ladders, rung for rung | `dashboard/flows.js` | `apps-script/Digest.gs` `dFlow*_` |
+| owners are ONLY Gaby/Miguel/Joey/Bernardo | `dashboard/alerts.js` | `apps-script/Digest.gs` `D_PEOPLE` + `dResolveDm_` |
 | raffle: conditions, answer classifier | `dashboard/raffle.js` | `apps-script/Digest.gs` `dRaffleConditions_` / `dClassify_` |
 | raffle: cohort month + `month moved` | `dashboard/raffle.js` `monthOf` / `moveTargets` | `apps-script/Digest.gs` `dMonthOf_` |
 | the `activeMonth` setting (Sheets date coercion) | `dashboard/sheets-reader.js` `monthSetting` | `apps-script/Digest.gs` `dMonthSetting_` |
@@ -58,11 +59,20 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | raffle: the two parallel post-draw tasks | `dashboard/flows.js` + `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |
 | Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |
 
-`Digest.gs` `selfCheck()` prints its stage counts, task total, and the raffle
-counts (month · cohort · qualifying · eligible · draw state · winner) so drift is
-detectable rather than silent, and runs `dSelfCheckRaffle_()` for the structural
-invariants. Run it after any such change and compare against
-`RaffleFold.build(state)` in the browser console.
+`Digest.gs` `selfCheck()` prints its stage counts, task total, the raffle counts
+(month · cohort · qualifying · eligible · draw state · winner) and a **task
+fingerprint**, so drift is detectable rather than silent. It also runs
+`dSelfCheckRaffle_()` for the structural invariants.
+
+**After ANY change to either side, compare the fingerprints.** In the browser
+console on the dashboard:
+
+```js
+Alerts.fingerprint(TDApp.state)
+```
+
+and diff it against the block `selfCheck()` prints. They must be identical — if
+they are not, the digest is telling the team something the queue does not say.
 
 ## Build phases
 
