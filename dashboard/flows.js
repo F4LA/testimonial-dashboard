@@ -36,16 +36,48 @@
    * Copy templates
    *
    * Provenance matters here, so it is recorded per template:
-   *   SOP  — Gaby's existing wording, reused verbatim (paragraph breaks
-   *          restored; the .docx export flattens them)
-   *   V2   — new copy approved in the Task Model v2 spec
-   *   NONE — no approved text exists yet; the copy button says so rather
-   *          than inventing something in Gaby's voice
+   *   SOP   — Gaby's existing wording, reused verbatim (paragraph breaks
+   *           restored; the .docx export flattens them)
+   *   V2    — new copy approved in the Task Model v2 spec
+   *   D-### — copy approved in the governance repo under that decision row
+   *   NONE  — no approved text exists yet; the copy button says so rather
+   *           than inventing something in Gaby's voice
    *
    * v2 requires no em dashes. `checkTemplates()` asserts it.
+   *
+   * ⚠️ APPROVED COPY IS STORED CHARACTER FOR CHARACTER. `outreachInitial`
+   * carries typographic apostrophes (U+2019) and an ellipsis (U+2026) because
+   * that is how it was approved; the older SOP templates use straight quotes
+   * because that is how THEY were approved. Do not "normalise" either one —
+   * silently changing an approved client-facing message is exactly the drift
+   * the provenance field exists to prevent.
    * ====================================================================== */
 
   var TEMPLATES = {
+    /* Flow 1+2 · the FIRST invitation — Bernardo → client, after the coach's
+     * warm-up and before the client has said yes or no. Approved as D-109.
+     *
+     * Placeholders are the approved ones and are deliberately multi-word, so
+     * `render()` matches `[\w ]+` rather than `[\w]+`. Unknown placeholders
+     * still render as themselves, so a gap stays visible instead of blank. */
+    outreachInitial: {
+      source: "D-109",
+      text:
+        "Hey [Client First Name]!\n\n" +
+        "[Coach Name] was telling me about your progress and some of the wins you’ve had in this journey, " +
+        "and I just wanted to say congratulations. You’re doing incredible work!\n\n" +
+        "I’m reaching out because we’re selecting clients for this month’s Strong Standard Case Studies, " +
+        "and your story would be a fantastic one to share.\n\n" +
+        "A lot of the people who join Strong Standard mention during their Discovery Call that they decided " +
+        "to take action after watching one of our Case Studies. They were stuck, frustrated, unsure… and " +
+        "seeing someone who had been in their shoes gave them the push they needed.\n\n" +
+        "Your journey could be that spark for someone else.\n\n" +
+        "It’s simple: a short video telling your story is the heart of it, and I’ll walk you through " +
+        "everything else once you’re in. If you’re interested, you’ll also be entered into this month’s " +
+        "raffle for a free month of coaching.\n\n" +
+        "Let me know what you think 🙌"
+    },
+
     // Flow 1+2 — SOP §2.5. v2 timing (+24h / +48h), SOP wording. FU#3 dropped:
     // it was written for the Monday after the Sunday deadline and says the
     // deadline has passed, which is false on a relative clock.
@@ -141,7 +173,11 @@
   function render(key, vars) {
     var tpl = TEMPLATES[key];
     if (!tpl || !tpl.text) return null;
-    return tpl.text.replace(/\[(\w+)\]/g, function (m, name) {
+    // `[\w ]+`, not `\w+`: approved copy uses multi-word placeholders such as
+    // [Client First Name]. Widening is safe because an unknown placeholder is
+    // still returned unchanged, which is the existing "a gap is visible"
+    // behaviour rather than a silent blank.
+    return tpl.text.replace(/\[([\w ]+)\]/g, function (m, name) {
       return (vars && vars[name]) ? vars[name] : m;
     });
   }
@@ -224,6 +260,10 @@
           ? "Check if " + v.coach + " messaged " + v.Client + ", then do the outreach."
           : "Do outreach to " + v.Client + " (if the coach already messaged them).",
         detail: notMsg ? "Waiting on the coach since " + Math.round((root.TDClock.now() - lastNot.ts) / HOUR) + "h ago." : "",
+        // The first invitation (D-109). Both rungs are the same action — the
+        // retry is the same message once the coach has finally warmed them up —
+        // so both hand over the same copy.
+        template: "outreachInitial",
         actions: [
           { label: "Mark sent", stage: S.OUTREACH_SENT, event: "Outreach sent on Everfit from Bernardo's account" },
           { label: "Coach hasn't messaged", stage: S.OUTREACH_COACH_NOT_MSG,
@@ -577,6 +617,11 @@
       Coach: t.identity.coach || "the coach",
       form: settings.coachFormUrl || "[form link — set coachFormUrl in Settings]",
       date: roundDeadline(settings),
+      // D-109's approved placeholders. Same two values as Name and Coach —
+      // aliases, not a second source, so the card and the message can never
+      // disagree about who the client or the coach is.
+      "Client First Name": (t.identity.clientName || "").split(" ")[0] || t.email,
+      "Coach Name": t.identity.coach || "the coach",
       // The raffle cohort month, from the raffle fold's own definition rather
       // than re-derived here — there is one answer to "which month is this".
       month: root.RaffleFold ? root.RaffleFold.monthOf(t).month : ""

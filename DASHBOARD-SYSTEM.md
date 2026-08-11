@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-10**
+**Last updated: 2026-08-11**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -433,9 +433,17 @@ Every template records where its wording came from, because the sources disagree
 
 | Template | Source |
 |---|---|
+| **Initial outreach** (the first invitation) | **D-109**, approved in the governance repo |
 | Outreach follow-up #1, #2 | **SOP §2.5**, verbatim wording on v2's relative clock |
 | Video follow-up #1, #2 | **SOP §3** "Follow-Up System for Uploads" |
 | Tell the coach (no response) · Coach form follow-up · Tell the coach (no video) | **v2 spec** |
+| Raffle winner · raffle non-winner | **none yet** — the queue says so rather than inventing Gaby's voice |
+
+**The first invitation** (`outreachInitial`) is handed to Gaby on the outreach flow's `start` and `retry` rungs — the same action either way, so both offer the same copy. Later rungs do **not** inherit it: `reply-check` has no copy, and `fu1`/`fu2` keep their own SOP wording.
+
+Its placeholders are **multi-word** — `[Client First Name]` and `[Coach Name]` — because that is how the copy was approved. `render()` therefore matches `[\w ]+` rather than `\w+`. Widening is safe: an unrecognised placeholder is still returned unchanged, which is the existing "a gap is visible rather than a silent blank" behaviour. Both are **aliases** of the values the card already uses, so the message and the card can never disagree about who the client or the coach is.
+
+⚠️ **Approved copy is stored character for character.** `outreachInitial` carries typographic apostrophes (U+2019) and an ellipsis (U+2026); the older SOP templates carry straight quotes. Neither should be "normalised" — silently changing an approved client-facing message is the drift the provenance field exists to prevent.
 
 ⚠️ **The video follow-ups live in SOP revisions 1–4, not revision 5** — that section was dropped in the newest file. Searching only the newest revision misses them.
 

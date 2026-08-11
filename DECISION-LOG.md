@@ -13,6 +13,40 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-11 — El primer mensaje de outreach queda cargado en la cola (D-109)
+
+El texto aprobado del **primer mensaje de invitación** (Bernardo → cliente, después del warm-up del coach y antes de que el cliente diga sí o no) ya está en el dashboard. El texto en sí se aprobó en el repo de gobernanza como **D-109**; esta entrada solo registra el cableado.
+
+### Dónde aparece
+
+En el flujo de outreach, rungs **`start`** y **`retry`** — la misma acción en ambos casos (el retry es el mismo mensaje una vez que el coach por fin lo calentó), así que los dos entregan la misma copy. El botón es **"Copy message"**, igual que las demás plantillas ya cableadas.
+
+Los rungs posteriores **no la heredan**: `reply-check` sigue sin copy, y `fu1`/`fu2` conservan su texto del SOP §2.5.
+
+### Corrección al planteo
+
+Se pidió reemplazar el estado vacío *"No approved message exists for this step yet."* en este paso. Ese estado **no se estaba mostrando ahí**: el rung no tenía plantilla asignada en absoluto, y esa caja solo aparece con plantillas marcadas `NONE` — hoy únicamente los dos mensajes de la rifa. El resultado es el mismo (ahora hay botón donde antes no había nada), pero conviene que el log diga qué pasaba realmente.
+
+### Los placeholders son multi-palabra, y eso obligó a tocar el renderer
+
+La copy aprobada usa **`[Client First Name]`** y **`[Coach Name]`**. El renderer hacía `match` con `\[(\w+)\]`, que **no** acepta espacios — los dos habrían salido sin reemplazar. Ahora usa `\[([\w ]+)\]`.
+
+Ensanchar el patrón es seguro porque un placeholder desconocido se sigue devolviendo tal cual, que es el comportamiento que ya existía a propósito (*"un hueco se ve, en vez de quedar en blanco"*). Verificado sin regresión en las nueve plantillas anteriores.
+
+Ambos valores son **alias** de los que la tarjeta ya usa (`Name` y `Coach`), no una segunda fuente: el mensaje y la tarjeta no pueden discrepar sobre quién es el cliente o el coach.
+
+### El texto se guarda carácter por carácter
+
+`outreachInitial` lleva apóstrofos tipográficos (U+2019) y una elipsis (U+2026) porque así se aprobó; las plantillas viejas del SOP llevan comillas rectas porque así se aprobaron ellas. **Ninguna de las dos debe "normalizarse"** — cambiar en silencio un mensaje aprobado que va al cliente es justamente la deriva que el campo de procedencia existe para evitar. Queda anotado en el propio archivo y en `DASHBOARD-SYSTEM.md`.
+
+Se añadió `D-###` como cuarto valor de procedencia, junto a `SOP`, `v2` y `NONE`.
+
+### Verificado
+
+Contra un cliente real del roster: una sola tarea de outreach, `copySource: "D-109"`, cero placeholders sin llenar, nombre y coach insertados, texto de 920 caracteres en 7 párrafos, sin espacios dobles ni saltos triples en las uniones de cadena. `checkTemplates()` sigue en verde (ningún em dash). El fingerprint de tareas no se movió: las plantillas no entran en él, y las dos implementaciones siguen idénticas en los 18 escenarios — `Digest.gs` no necesita cambio, porque no reparte copy.
+
+---
+
 ## 2026-08-10 — El digest: DMs y nada más, con resumen de equipo para Gaby y Bernardo
 
 Cambios de comportamiento pedidos antes de pegar el archivo, más las direcciones reales.
