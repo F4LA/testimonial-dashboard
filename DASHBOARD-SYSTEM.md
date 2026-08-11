@@ -246,7 +246,7 @@ A re-nomination needs no new string — it is `Nomination — logged` with cycle
 
 Guarantees, enforced on **both** sides:
 
-1. **No anonymous writes.** An actor from `PEOPLE` (Joey, Miguel, Gaby, Bernardo, Sofi) is required. `Source` becomes `MANUAL - <Name>`. The picker remembers the choice in `localStorage`.
+1. **No anonymous writes.** An actor from `PEOPLE` (Gaby, Miguel, Joey, Bernardo) is required. `Source` becomes `MANUAL - <Name>`. The picker remembers the choice in `localStorage`.
 2. **No engine impersonation.** `Stage` must be in the approved dashboard vocabulary; the five engine strings are explicitly excluded.
 3. **Header guard.** `Code.gs` re-checks that A–E are exactly the expected headers before every write, and refuses if they drifted.
 4. **Read the response, then verify.** The POST is a normal readable fetch — Apps Script *does* return `access-control-allow-origin: *` on its redirect target, verified live. `Content-Type` stays `text/plain` so it remains a CORS "simple request": Apps Script does not answer OPTIONS, so anything that triggers a preflight fails.
@@ -614,13 +614,26 @@ The draw emits tasks and a draw-due state, so `Digest.gs` is no longer raffle-bl
 
 Spec §5: one DM per person per day with only their own items, plus production items in the existing testimonial-management channel. Same mechanism as the monthly nomination scheduler — an Apps Script time trigger through the existing bot.
 
-**Nothing is installed and nothing sends** until `DIGEST` is filled in and `installDigestTrigger()` is run deliberately. `previewDigest()` returns exactly what would be posted and sends nothing; run it first, every time.
+**Nothing is installed and nothing sends** until `installDigestTrigger()` is run deliberately. `previewDigest()` returns exactly what would be posted and sends nothing; run it first, every time.
 
-Still required before it can run:
+### What goes out
 
-1. Slack addresses for Gaby, Joey, Miguel, Bernardo, Sofi (`DIGEST.PEOPLE_SLACK`). Coaches resolve from roster column J automatically.
-2. The testimonial-management channel ID (`DIGEST.CONTENT_CHANNEL_ID`).
-3. Confirmation to reuse the engine's `SLACK_BOT_TOKEN`, and that the bot is in that channel.
+| # | To | Content |
+|---|---|---|
+| 1 | each of Gaby · Miguel · Joey · Bernardo | a DM with **their own** tasks, grouped overdue / due / reminders / needs review |
+| 2 | **Gaby and Bernardo** (`DIGEST.SUMMARY_TO`) | a **second, separate** DM: the whole team's tasks grouped by person, with the day's totals |
+
+Two messages rather than one longer one, deliberately: the first has to stay actionable, and burying Gaby's own items inside everyone else's would defeat it.
+
+**No group channel is posted to.** The testimonial collection channel is reserved for the monthly nomination message, and the private channel this once targeted no longer exists. `CONTENT_CHANNEL_ID` is left empty and **nothing reads it** — the channel code was removed rather than left behind a flag, so there is no dormant path that could start posting by accident. `installDigestTrigger()` no longer demands it.
+
+A person with no tasks gets no DM, and a day with nothing open sends **nothing at all** — not even a "nothing to do" summary. Verified with an empty log: zero Slack calls.
+
+### Addresses, and why a coach cannot be reached
+
+`DIGEST.PEOPLE_SLACK` is the **only** place an address is ever resolved; `dResolveDm_` has no roster fallback and refuses any name outside `D_PEOPLE`. Combined with `dTasks_` rerouting non-person owners to Gaby, a coach cannot be messaged by two independent mechanisms (D-094). `dSelfCheckSend_()` asserts both, and `installDigestTrigger()` refuses to install if either fails.
+
+Still required before it can run: the `SLACK_BOT_TOKEN` script property in the **dashboard's** Apps Script project (properties are per project — the engine's token lives in the engine's project).
 
 ### ⚠️ It duplicates the fold — the main maintenance risk in this repo
 

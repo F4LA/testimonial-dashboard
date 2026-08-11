@@ -13,6 +13,32 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-10 — El digest: DMs y nada más, con resumen de equipo para Gaby y Bernardo
+
+Cambios de comportamiento pedidos antes de pegar el archivo, más las direcciones reales.
+
+### Qué sale ahora
+
+1. **Un DM por persona** (Gaby, Miguel, Joey, Bernardo) con **sus** tareas — como ya estaba.
+2. **Un SEGUNDO DM, separado**, a Gaby y Bernardo (`DIGEST.SUMMARY_TO`) con el resumen del día: todas las tareas de todos, agrupadas por persona, con los totales por urgencia. Dos mensajes y no uno más largo, a propósito: el primero tiene que seguir siendo accionable, y meter los ocho items de Gaby dentro de los treinta de todos lo arruinaría.
+3. **Nada más.** No se postea a ningún canal grupal.
+
+### El canal se eliminó, no se apagó
+
+El canal de testimonial collection queda reservado para el mensaje mensual de nominación, y el canal privado que esto apuntaba ya no existe. `CONTENT_CHANNEL_ID` queda vacío y **nadie lo lee**: se borró el código del canal en vez de dejarlo detrás de un flag, así que no queda un camino dormido que pueda empezar a postear por accidente. `installDigestTrigger()` ya no lo exige — ahora exige lo que de verdad importa, que haya cómo alcanzar a Gaby.
+
+### La guarda del coach, intacta y ahora afirmada en el instalador
+
+`PEOPLE_SLACK` es el **único** sitio de donde sale una dirección. `dResolveDm_` no tiene fallback al roster y rechaza cualquier nombre fuera de `D_PEOPLE`. Nuevo `dSelfCheckSend_()` afirma las dos cosas más que `PEOPLE_SLACK` y `SUMMARY_TO` solo contengan usuarios del dashboard, y **`installDigestTrigger()` se niega a instalar** si algo de eso falla.
+
+### Verificado con Slack instrumentado
+
+Con tres clientes reales en estados distintos (Gaby 3 tareas, Miguel 1, Joey 1): **5 mensajes** — 3 listas personales + 2 resúmenes. Cero destinos que empiecen por `C`/`G` (canales). Cero direcciones fuera de las cuatro. Con el log vacío: **cero llamadas a Slack**, ni siquiera el resumen. `installDigestTrigger` idempotente y sin exigir canal.
+
+Las dos suites de deriva siguen limpias: fingerprint idéntico en los 18 escenarios, rifa sin deriva en los 9.
+
+---
+
 ## 2026-08-10 — El digest habla el mismo idioma que la cola: modelo v2 portado y la guarda del coach
 
 Dos bloqueadores que aparecieron al preparar el lanzamiento del digest. `Digest.gs` nunca se pegó a ningún proyecto de Apps Script, así que nada de esto llegó a enviarse — pero el primer envío real habría sido incorrecto en las dos formas.

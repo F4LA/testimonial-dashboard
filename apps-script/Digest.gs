@@ -5,9 +5,18 @@
  * Code.gs. It is deliberately NOT in the collection engine's project.
  *
  * ⚠️ NOTHING IS WIRED YET. No trigger is installed and no message is sent
- * until the values in CONFIG below are filled in and `installDigestTrigger()`
- * is run deliberately. Run `previewDigest()` first — it returns exactly what
- * would be posted, and sends nothing.
+ * until `installDigestTrigger()` is run deliberately. Run `previewDigest()`
+ * first — it returns exactly what would be posted, and sends nothing.
+ *
+ * WHAT GOES OUT, each morning:
+ *   1. One DM per person (Gaby / Miguel / Joey / Bernardo) with THEIR tasks.
+ *   2. A SECOND, separate DM to the people in `DIGEST.SUMMARY_TO` — Gaby and
+ *      Bernardo — with the whole team's tasks grouped by person. Two messages,
+ *      not one longer one: the first has to stay actionable.
+ *   3. Nothing else. NO GROUP CHANNEL IS POSTED TO. The testimonial collection
+ *      channel is reserved for the monthly nomination message, and the private
+ *      channel this once targeted no longer exists. A person with no tasks gets
+ *      no DM, and an empty board sends nothing at all.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS DUPLICATES THE FOLD — and how to keep it honest
@@ -64,17 +73,30 @@ var DIGEST = {
 
   // Slack DM targets, by the same names as TDConfig.PEOPLE. Email addresses;
   // the bot resolves them with users.lookupByEmail, exactly as the engine's
-  // notifyCoach_ does. Coaches are resolved from the roster's column J.
+  // notifyCoach_ does.
+  //
+  // ⚠️ THIS MAP IS THE ONLY WAY AN ADDRESS IS EVER RESOLVED. There is no roster
+  // fallback: a name that is not here cannot be messaged, which is what makes
+  // "coaches are never messaged" structural rather than conventional (D-094).
   PEOPLE_SLACK: {
-    Gaby:     '',      // ← required, she owns most of the queue
-    Miguel:   '',      // ← required, content
-    Joey:     '',      // ← required, approvals (temporary stage, 3-4 months)
-    Bernardo: ''       // ← escalations only
+    Gaby:     'support@strongstandard.com',
+    Miguel:   'miguelsa45@gmail.com',
+    Joey:     'drjoey@fit4lifeacademy.health',
+    Bernardo: 'bernardo@strongstandard.com'
   },
 
-  // The existing testimonial-management channel. Production items surface
-  // here rather than as DMs, so Gaby can push in the open (spec §5).
-  CONTENT_CHANNEL_ID: '',   // ← required, e.g. C0XXXXXXXXX
+  // Who ALSO gets the whole-team summary as a second, separate DM.
+  // Everyone still gets their own list first; this is the bird's-eye view on
+  // top of it. Must be names from PEOPLE_SLACK — asserted in dSelfCheckSend_.
+  SUMMARY_TO: ['Gaby', 'Bernardo'],
+
+  // ⚠️ DELIBERATELY EMPTY, AND NOTHING READS IT. The digest posts to NO group
+  // channel: the testimonial collection channel is reserved for the monthly
+  // nomination message, and the private channel this once targeted no longer
+  // exists. Everything goes out as DMs. Filling this in does nothing — the
+  // channel code was removed rather than left behind a flag, so there is no
+  // dormant path that could start posting to a channel by accident.
+  CONTENT_CHANNEL_ID: '',
 
   // Script Property holding the bot token. Reuse the engine's bot.
   TOKEN_PROPERTY: 'SLACK_BOT_TOKEN',
@@ -1018,6 +1040,51 @@ function dRender_(owner, tasks) {
   return L.join('\n');
 }
 
+/**
+ * The whole-team summary — a SECOND, separate DM for the people in
+ * DIGEST.SUMMARY_TO, on top of their own list.
+ *
+ * Deliberately a distinct message rather than a longer personal one: the first
+ * DM is "what you must do today" and has to stay actionable, while this is
+ * "what the whole board looks like". Merging them would bury Gaby's own eight
+ * items inside everyone else's thirty.
+ *
+ * Grouped by person, because the question it answers is "who is holding what".
+ */
+function dRenderSummary_(tasks) {
+  var MARK = { overdue: ':rotating_light:', due: ':hourglass:',
+               reminder: ':small_blue_diamond:', review: ':mag:' };
+
+  var bySev = {};
+  tasks.forEach(function (t) { bySev[t.sev] = (bySev[t.sev] || 0) + 1; });
+
+  var L = ['*Team summary — ' + Utilities.formatDate(new Date(), DIGEST_TZ, 'EEE d MMM') + '*',
+           '_Everyone\'s testimonial tasks. Your own list is in the other message._',
+           '',
+           '*' + tasks.length + '* open in total' +
+             (bySev.overdue ? '  ·  :rotating_light: ' + bySev.overdue + ' overdue' : '') +
+             (bySev.due ? '  ·  :hourglass: ' + bySev.due + ' due' : '') +
+             (bySev.reminder ? '  ·  :small_blue_diamond: ' + bySev.reminder + ' reminders' : '') +
+             (bySev.review ? '  ·  :mag: ' + bySev.review + ' to review' : '')];
+
+  var byOwner = {};
+  tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
+
+  // D_PEOPLE order, not insertion order, so the summary reads the same shape
+  // every day. Nobody outside D_PEOPLE can appear — dTasks_ guarantees it.
+  D_PEOPLE.forEach(function (o) {
+    var mine = byOwner[o];
+    if (!mine || !mine.length) return;
+    L.push('', '*' + o + '* — ' + mine.length + (mine.length === 1 ? ' task' : ' tasks'));
+    mine.forEach(function (t) {
+      L.push((MARK[t.sev] || '•') + ' ' + t.title);
+    });
+  });
+
+  L.push('', '<' + DIGEST.DASHBOARD_URL + '|Open the dashboard>');
+  return L.join('\n');
+}
+
 function dSlack_(method, payload) {
   var token = PropertiesService.getScriptProperties().getProperty(DIGEST.TOKEN_PROPERTY);
   if (!token) throw new Error('Missing script property ' + DIGEST.TOKEN_PROPERTY);
@@ -1082,12 +1149,20 @@ function previewDigest() {
     out.push('');
   });
 
-  var content = tasks.filter(function (t) { return t.flow === 'content'; });
-  if (content.length) {
-    out.push('--- also posted to the content channel (' +
-             (DIGEST.CONTENT_CHANNEL_ID || 'NO CHANNEL SET — this post will be SKIPPED') + ') ---');
-    content.forEach(function (t) { out.push('• ' + t.title + ' — *' + t.owner + '*'); });
-    out.push('');
+  if (tasks.length) {
+    out.push('--- SECOND DM (team summary) to ' + DIGEST.SUMMARY_TO.join(' and ') + ' ---');
+    out.push(dRenderSummary_(tasks), '');
+  } else {
+    out.push('(no open tasks, so nothing would be sent at all — not even the summary)', '');
+  }
+
+  out.push('--- channels ---');
+  out.push('No group channel is posted to. DMs only.');
+
+  var sendProblems = dSelfCheckSend_();
+  if (sendProblems.length) {
+    out.push('', '!!! SEND CONFIG PROBLEMS !!!');
+    sendProblems.forEach(function (p) { out.push('  - ' + p); });
   }
 
   var msg = out.join('\n');
@@ -1095,7 +1170,50 @@ function previewDigest() {
   return msg;
 }
 
-/** Sends. Only ever called by the installed trigger, or deliberately by hand. */
+/**
+ * Assertions about WHO can be messaged. Separate from dSelfCheckRaffle_ because
+ * this is about the send path, not the rules — and the send path is the one
+ * that can put a message in front of the wrong person.
+ */
+function dSelfCheckSend_() {
+  var problems = [];
+
+  Object.keys(DIGEST.PEOPLE_SLACK).forEach(function (name) {
+    if (D_PEOPLE.indexOf(name) < 0) {
+      problems.push('PEOPLE_SLACK has "' + name + '", who is not a dashboard user — ' +
+                    'only Gaby/Miguel/Joey/Bernardo may ever be messaged (D-094)');
+    }
+    if (!DIGEST.PEOPLE_SLACK[name]) {
+      problems.push('no Slack address for ' + name + ' — their DM will be skipped');
+    }
+  });
+
+  DIGEST.SUMMARY_TO.forEach(function (name) {
+    if (D_PEOPLE.indexOf(name) < 0) {
+      problems.push('SUMMARY_TO has "' + name + '", who is not a dashboard user');
+    }
+    if (!DIGEST.PEOPLE_SLACK[name]) {
+      problems.push('SUMMARY_TO has ' + name + ' but no address for them');
+    }
+  });
+
+  // The guarantee that matters: a coach name resolves to nothing, without
+  // Slack ever being called.
+  if (dResolveDm_('SomeCoachName') !== null) {
+    problems.push('dResolveDm_ resolved a non-person — coaches must never be reachable (D-094)');
+  }
+
+  return problems;
+}
+
+/**
+ * Sends. Only ever called by the installed trigger, or deliberately by hand.
+ *
+ * DMs ONLY. Nothing is posted to any group channel: the testimonial collection
+ * channel is reserved for the monthly nomination message, and the private
+ * channel this used to target no longer exists. There is no channel code left
+ * in this function to re-enable by accident.
+ */
 function sendDailyDigest() {
   var r = dTasks_(true);
   var tasks = r.tasks;
@@ -1107,6 +1225,7 @@ function sendDailyDigest() {
   var byOwner = {};
   tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
 
+  // 1 · each person's own list.
   // ONLY dashboard users are ever iterated. Even if a non-person owner somehow
   // survived dTasks_, there is no loop here that would reach them.
   D_PEOPLE.forEach(function (owner) {
@@ -1117,17 +1236,18 @@ function sendDailyDigest() {
     dSlack_('chat.postMessage', { channel: id, text: dRender_(owner, mine) });
   });
 
-  // The content channel is a VIEW of the content flow, not a second task list —
-  // spec §5 wants production visible in the open. The same tasks already went
-  // to their owner as a DM.
-  var content = tasks.filter(function (t) { return t.flow === 'content'; });
-  if (content.length && DIGEST.CONTENT_CHANNEL_ID) {
-    var lines = ['*Production — open work*'];
-    content.forEach(function (t) {
-      lines.push('• ' + t.title + ' — *' + t.owner + '*' + (t.sev === 'overdue' ? ' :rotating_light:' : ''));
+  // 2 · the whole-team summary, as a SEPARATE second DM.
+  // Skipped entirely when there is nothing open, so a quiet day sends nothing
+  // at all rather than a message saying there is nothing.
+  if (tasks.length) {
+    var summary = dRenderSummary_(tasks);
+    DIGEST.SUMMARY_TO.forEach(function (owner) {
+      // Routed through the same resolver, so the summary can no more reach a
+      // coach than a personal list can.
+      var id = dResolveDm_(owner);
+      if (!id) { Logger.log('No Slack address for ' + owner + ' — summary skipped.'); return; }
+      dSlack_('chat.postMessage', { channel: id, text: summary });
     });
-    lines.push('', '<' + DIGEST.DASHBOARD_URL + '|Open the dashboard>');
-    dSlack_('chat.postMessage', { channel: DIGEST.CONTENT_CHANNEL_ID, text: lines.join('\n') });
   }
 }
 
@@ -1232,7 +1352,7 @@ function selfCheck() {
   var tasks = r.tasks;
   function n(pred) { return tasks.filter(pred).length; }
 
-  var problems = dSelfCheckRaffle_().concat(r.problems);
+  var problems = dSelfCheckRaffle_().concat(dSelfCheckSend_()).concat(r.problems);
 
   // Every owner must be a dashboard user. After dTasks_ reroutes, this can only
   // fail if the reroute itself broke — which is exactly when it matters.
@@ -1288,8 +1408,19 @@ function installDigestTrigger() {
     return t.getHandlerFunction() === 'sendDailyDigest';
   });
   if (already.length) return 'Already installed. Nothing done.';
-  if (!DIGEST.CONTENT_CHANNEL_ID) throw new Error('CONTENT_CHANNEL_ID is empty — fill DIGEST first.');
-  if (!DIGEST.PEOPLE_SLACK.Gaby)  throw new Error('PEOPLE_SLACK.Gaby is empty — fill DIGEST first.');
+
+  // CONTENT_CHANNEL_ID is deliberately NOT required any more — the digest posts
+  // to no channel at all. What IS required is a way to reach Gaby, who owns
+  // most of the queue: without it the daily run would do nothing and look fine.
+  if (!DIGEST.PEOPLE_SLACK.Gaby) throw new Error('PEOPLE_SLACK.Gaby is empty — fill DIGEST first.');
+
+  var problems = dSelfCheckSend_();
+  if (problems.length) {
+    throw new Error('Refusing to install — fix these first:\n  - ' + problems.join('\n  - '));
+  }
+
   ScriptApp.newTrigger('sendDailyDigest').timeBased().atHour(DIGEST.HOUR).everyDays(1).create();
-  return 'Installed sendDailyDigest daily at ' + DIGEST.HOUR + ':00 ' + DIGEST_TZ;
+  return 'Installed sendDailyDigest daily between ' + DIGEST.HOUR + ':00 and ' +
+         (DIGEST.HOUR + 1) + ':00, project timezone. DMs only, no channel. ' +
+         'Team summary also goes to: ' + DIGEST.SUMMARY_TO.join(', ') + '.';
 }
