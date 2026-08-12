@@ -164,8 +164,39 @@
         "Raffle winner [month]: add one extra month to [Client]'s contract. " +
         "Confirmed in the dashboard on the raffle draw for [month]."
     },
-    raffleWinnerMessage: { source: "NONE", text: null },
-    raffleNonWinnerMessage: { source: "NONE", text: null }
+    /* The two client-facing raffle messages, approved as D-106. Gaby's single
+     * post-draw task hands over BOTH, so each carries its own button label —
+     * sending the winner text to a non-winner is the one mistake this step can
+     * make, and two unlabelled buttons would invite it. */
+    raffleWinnerMessage: {
+      source: "D-106",
+      label: "Copy the WINNER message",
+      text:
+        "Hey [Name]!\n\n" +
+        "I just wanted to say a huge thank you again for sharing your story with us. " +
+        "Your testimonial is going to inspire a lot of people who are in the same place " +
+        "you were before you started.\n\n" +
+        "Also… I have some good news 😄\n\n" +
+        "You were selected as this month’s raffle winner, so we’re adding one extra month " +
+        "of coaching to the end of your current contract.\n\n" +
+        "This is just our way of saying thank you for taking the time and courage to put " +
+        "your story out there.\n\n" +
+        "I really appreciate you and the work you’re doing 🙌"
+    },
+    raffleNonWinnerMessage: {
+      source: "D-106",
+      label: "Copy the NON-WINNER message",
+      text:
+        "Hey [Name]!\n\n" +
+        "I just wanted to personally thank you again for sharing your story with us. " +
+        "Your testimonial is going to mean a lot to people who feel stuck and need to see " +
+        "that change is possible.\n\n" +
+        "We ran this month’s raffle for the free extra month of coaching. Your name was in " +
+        "the draw, but this time it went to someone else.\n\n" +
+        "Even though you didn’t win the raffle, what matters most is the impact your story " +
+        "will have. I’m really grateful you were open to doing this.\n\n" +
+        "Thank you again for being part of this 🙌"
+    }
   };
 
   /** Fill the placeholders. Missing values render as the placeholder itself,
@@ -218,6 +249,7 @@
       flow: o.flow, rung: o.rung, owner: o.owner,
       title: o.title, detail: o.detail || "",
       template: o.template || null,
+      templates: o.templates || null,
       actions: o.actions || [],
       anchorTs: o.anchor.ts, dueTs: due,
       waitedHours: (now - o.anchor.ts) / HOUR,
@@ -594,7 +626,8 @@
       title: "Send the " + v.month + " raffle messages: " + v.Client + " won, and thank the rest.",
       detail: "The winner message plus the thank-you to everyone else who entered. " +
               "Both go out through Everfit.",
-      template: "raffleWinnerMessage",
+      // Both messages, on the same task — see `copies` in evaluate().
+      templates: ["raffleWinnerMessage", "raffleNonWinnerMessage"],
       actions: [{ label: "Messages sent", stage: S.RAFFLE_MESSAGES,
                   event: "Winner and non-winner messages sent for the " + v.month + " raffle" }]
     });
@@ -632,8 +665,21 @@
       var task = fn(t, settings, h, vars);
       if (!task) return;
       task.vars = vars;
-      task.copy = task.template ? render(task.template, vars) : null;
-      task.copySource = task.template && TEMPLATES[task.template] ? TEMPLATES[task.template].source : null;
+
+      /* A step can need MORE THAN ONE message. The raffle post-draw task is
+       * the first: Gaby sends the winner text and the non-winner text in the
+       * same sitting (D-080 — they go out together, not in sequence). `copies`
+       * is the general form; `copy`/`copySource` stay for the single-template
+       * steps so nothing else had to change. */
+      var keys = task.templates || (task.template ? [task.template] : []);
+      task.copies = keys.map(function (k) {
+        var tpl = TEMPLATES[k] || {};
+        return { key: k, label: tpl.label || "Copy message",
+                 text: render(k, vars), source: tpl.source || null };
+      });
+
+      task.copy = task.copies.length ? task.copies[0].text : null;
+      task.copySource = task.copies.length ? task.copies[0].source : null;
       out.push(task);
     });
     return out;

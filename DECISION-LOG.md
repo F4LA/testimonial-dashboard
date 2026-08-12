@@ -13,6 +13,38 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-11 — Los dos mensajes de la rifa quedan cargados (D-106)
+
+El texto aprobado del **mensaje al ganador** y del **mensaje a los no-ganadores** (Everfit, Bernardo → cliente) ya está en el dashboard. Los dos textos se aprobaron en el repo de gobernanza como **D-106**; la gobernanza de la carga se sigue allá, esta entrada solo registra el cableado.
+
+Con esto **ya no queda ninguna plantilla `NONE`**: el estado vacío *"No approved message exists for this step yet."* pasa a ser inalcanzable. Se deja en el código para el próximo paso que lo necesite.
+
+### Hizo falta un cambio de patrón: dos mensajes en una sola tarea
+
+La tarea post-sorteo de Gaby es *"send the winner message and the thank-you to everyone who did not win"* — **dos** mensajes. El modelo solo admitía **uno** por tarea (`template:` en singular), así que cablear solo el del ganador habría dejado el del no-ganador inalcanzable, y la tarea a medio hacer.
+
+Ahora una tarea puede declarar `templates: [...]`. `evaluate()` renderiza cada uno en `task.copies`, y la cola dibuja **un botón por mensaje**. Los pasos de una sola plantilla siguen exactamente igual (`template:`, botón **"Copy message"**), así que no hubo que tocar ninguno.
+
+Las etiquetas son deliberadamente explícitas — **"Copy the WINNER message"** y **"Copy the NON-WINNER message"** — porque el único error que este paso puede cometer es mandarle el texto del ganador a quien no ganó, y dos botones que dijeran "Copy message" lo invitarían. El handler de copiar también se corrigió: antes copiaba *"el mensaje de la tarea"*, ahora copia **el mensaje al que pertenece el botón**.
+
+### Verificación
+
+No hay ningún elegible real todavía (el Event Log arrancó con 8 filas reales, cohorte 4, sin nadie que cumpla las tres condiciones), así que se validó con datos sintéticos sobre **dos clientes reales del roster**: sorteo con 2 elegibles, ganador confirmado, y la tarea de Gaby entregando `copies.length === 2`, ambas con `copySource: "D-106"`, cero placeholders sin llenar y el nombre del cliente resuelto en las dos.
+
+`[Name]` es de una sola palabra, así que el regex ancho de D-109 ya lo cubría — verificado explícitamente, y también que un placeholder desconocido se sigue devolviendo tal cual.
+
+Integridad de los textos: ganador 516 caracteres en 6 párrafos, no-ganador 512 en 5; apóstrofos tipográficos (U+2019) en ambos, elipsis (U+2026) y los dos emoji en el del ganador; sin em dashes, sin espacios dobles ni saltos triples en las uniones de cadena. `checkTemplates()` en verde y las doce plantillas sin regresión.
+
+La tarea de Miguel (`raffleMonthAdd`) sigue con su propia copy `v2`, una sola, con la etiqueta genérica — no se contaminó.
+
+Sin deriva: el fingerprint de tareas no se movió (las plantillas no entran en él), idéntico en los 18 escenarios, y la suite de rifa limpia en los 9. `Digest.gs` no necesita cambio porque no reparte copy.
+
+### Una discrepancia que dejo señalada, no resuelta
+
+Se pidió seguir *"el mismo patrón usado para el mensaje inicial de outreach (D-110)"*, pero ese mensaje se cargó ayer etiquetado como **D-109**, que es el número que se indicó entonces. Uno de los dos números está mal. **No cambié la etiqueta de `outreachInitial`** — cambiar una referencia de procedencia por cuenta propia es justo lo que este campo existe para evitar. Queda pendiente confirmar cuál es el correcto.
+
+---
+
 ## 2026-08-11 — El primer mensaje de outreach queda cargado en la cola (D-109)
 
 El texto aprobado del **primer mensaje de invitación** (Bernardo → cliente, después del warm-up del coach y antes de que el cliente diga sí o no) ya está en el dashboard. El texto en sí se aprobó en el repo de gobernanza como **D-109**; esta entrada solo registra el cableado.

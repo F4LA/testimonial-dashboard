@@ -41,13 +41,20 @@
         '" data-qact="1" data-id="' + esc(t.id) + '" data-i="' + i + '">' + esc(a.label) + "</button>";
     }).join("");
 
+    // A step can carry more than one approved message (the raffle post-draw
+    // task sends the winner text AND the non-winner text). Each gets its own
+    // labelled button, so the two can never be confused for each other.
+    var withText = (t.copies || []).filter(function (c) { return !!c.text; });
+
     var copyBlock = "";
-    if (t.copy) {
-      copyBlock =
-        '<div class="copybox">' +
-          '<button class="btn btn--sm" data-qcopy="1" data-id="' + esc(t.id) + '">Copy message</button>' +
-          '<pre class="copybox__text">' + esc(t.copy) + "</pre>" +
+    if (withText.length) {
+      copyBlock = withText.map(function (c, i) {
+        return '<div class="copybox">' +
+          '<button class="btn btn--sm" data-qcopy="1" data-id="' + esc(t.id) +
+            '" data-copy="' + i + '">' + esc(withText.length > 1 ? c.label : "Copy message") + "</button>" +
+          '<pre class="copybox__text">' + esc(c.text) + "</pre>" +
         "</div>";
+      }).join("");
     } else if (t.copySource === "NONE") {
       copyBlock =
         '<div class="copybox copybox--missing">No approved message exists for this step yet. ' +
@@ -156,9 +163,17 @@
       var copyBtn = e.target.closest ? e.target.closest("[data-qcopy]") : null;
       if (copyBtn) {
         var ct = find(copyBtn.getAttribute("data-id"));
-        if (ct && ct.copy && root.navigator && root.navigator.clipboard) {
-          root.navigator.clipboard.writeText(ct.copy).then(function () {
-            root.Dialog.feedback(copyBtn, "Message copied. Paste it into Everfit or Slack.", "ok");
+        // Copy the message the button belongs to, not "the task's message" —
+        // a step can hand over two, and the wrong one would reach a client.
+        var picked = null;
+        if (ct) {
+          var withText2 = (ct.copies || []).filter(function (c) { return !!c.text; });
+          picked = withText2[Number(copyBtn.getAttribute("data-copy")) || 0];
+        }
+        if (picked && picked.text && root.navigator && root.navigator.clipboard) {
+          root.navigator.clipboard.writeText(picked.text).then(function () {
+            root.Dialog.feedback(copyBtn, picked.label.replace(/^Copy the /, "The ").replace(/^Copy /, "") +
+              " copied. Paste it into Everfit.", "ok");
           }).catch(function () {
             root.Dialog.feedback(copyBtn, "Could not copy automatically — select the text and copy it.", "warn");
           });

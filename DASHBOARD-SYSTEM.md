@@ -437,13 +437,17 @@ Every template records where its wording came from, because the sources disagree
 | Outreach follow-up #1, #2 | **SOP §2.5**, verbatim wording on v2's relative clock |
 | Video follow-up #1, #2 | **SOP §3** "Follow-Up System for Uploads" |
 | Tell the coach (no response) · Coach form follow-up · Tell the coach (no video) | **v2 spec** |
-| Raffle winner · raffle non-winner | **none yet** — the queue says so rather than inventing Gaby's voice |
+| Raffle winner · raffle non-winner | **D-106**, approved in the governance repo |
 
 **The first invitation** (`outreachInitial`) is handed to Gaby on the outreach flow's `start` and `retry` rungs — the same action either way, so both offer the same copy. Later rungs do **not** inherit it: `reply-check` has no copy, and `fu1`/`fu2` keep their own SOP wording.
 
 Its placeholders are **multi-word** — `[Client First Name]` and `[Coach Name]` — because that is how the copy was approved. `render()` therefore matches `[\w ]+` rather than `\w+`. Widening is safe: an unrecognised placeholder is still returned unchanged, which is the existing "a gap is visible rather than a silent blank" behaviour. Both are **aliases** of the values the card already uses, so the message and the card can never disagree about who the client or the coach is.
 
-⚠️ **Approved copy is stored character for character.** `outreachInitial` carries typographic apostrophes (U+2019) and an ellipsis (U+2026); the older SOP templates carry straight quotes. Neither should be "normalised" — silently changing an approved client-facing message is the drift the provenance field exists to prevent.
+**Two messages on one step.** A task can carry more than one approved message, via `templates: [...]` instead of `template:`. The raffle post-draw task is the first: Gaby sends the winner text **and** the non-winner text in the same sitting (D-080 — they go out together, not in sequence). `evaluate()` renders each into `task.copies`, and the queue draws one labelled button per message — **"Copy the WINNER message"** and **"Copy the NON-WINNER message"**. The labels are deliberately explicit: sending the winner text to a non-winner is the one mistake this step can make, and two buttons reading "Copy message" would invite it. Single-template steps keep the plain **"Copy message"** label and are unchanged.
+
+⚠️ **Approved copy is stored character for character.** `outreachInitial` and both raffle messages carry typographic apostrophes (U+2019), and the winner message carries an ellipsis (U+2026) and two emoji; the older SOP templates carry straight quotes. Nothing here should be "normalised" — silently changing an approved client-facing message is the drift the provenance field exists to prevent.
+
+**No `NONE`-source templates remain.** Every step that hands over copy now has approved wording, so the *"No approved message exists for this step yet"* empty state is currently unreachable. It stays in the code for the next step that needs it.
 
 ⚠️ **The video follow-ups live in SOP revisions 1–4, not revision 5** — that section was dropped in the newest file. Searching only the newest revision misses them.
 
@@ -589,7 +593,7 @@ Both fire from the winner confirmation and **neither blocks the other** — they
 
 **The dashboard never touches the Master Sheet** — it hands Miguel the task with the note text ready to paste. Both are actioned **in the queue**, like every other task; the raffle view shows their state and links there, so there is one write path per action rather than two.
 
-⚠️ **Gaby's two client-facing messages have no approved copy in the repo.** They are declared as `NONE`-source templates, so the queue says *"no approved message exists for this step yet"* instead of inventing words in Gaby's voice. Paste the SOP wording into `TEMPLATES.raffleWinnerMessage` / `raffleNonWinnerMessage` in `flows.js` and the copy buttons light up with no other change.
+**Gaby's two client-facing messages are wired** (D-106): her task hands over both, as two separately labelled copy buttons — *Copy the WINNER message* and *Copy the NON-WINNER message*. See §10.4b Copy provenance for the multi-message pattern.
 
 ### Digest (D-088) — the raffle now lives in TWO places
 
@@ -828,8 +832,6 @@ Moving a client to Invited fires the collection engine's fan-out, so Gaby never 
 **Phase 5 remainder** — recognitions: **reviews** (the two separate signals, the pushed weekly verification task) and **podcast + client of the month** (the candidates view, the mark-the-winner click that fires the chain, the shout-out task). The raffle half is built — see §10.9.
 
 **Carried into the reviews chunk** — `Preferences — unresolved` is written by the bridge but nobody is told; it must surface as a Gaby task (D-098 carry-forward).
-
-**Copy still owed** — the SOP wording for the raffle winner message and the non-winner thank-you (§10.9).
 
 **Planned upgrade, post-launch** — automatic detection of the client video by polling Drive folder 03 from *our* standalone script (never the live engine). Needs Drive access for the Membership account and an `AUTO - dashboard` Source convention. The fold already accepts the event either way, so it lands with no downstream change.
 
