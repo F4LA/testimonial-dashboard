@@ -13,6 +13,29 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-17 — PENDIENTE ABIERTO: el proxy sigue en versión 5, el repo espera 6
+
+Nota de traspaso, no una decisión — para que una sesión nueva no tenga que reconstruir esto de una conversación de chat.
+
+El commit "La escalera se corre un lugar…" (más abajo, mismo día) subió `PROXY_VERSION` a **6** en `apps-script/Code.gs` y `EXPECTED_PROXY_VERSION` a **6** en `dashboard/config.js`, por el string nuevo `Collection — video check snoozed`. **El deployment en vivo (`…qll5X-MnC3gZ`) sigue sirviendo la versión 5.**
+
+Mientras eso no se resuelva:
+
+- El dashboard muestra el banner rojo de versión desalineada.
+- El botón **"Remind me in N days"** del video (Flujo 3, aplazamiento) **falla en producción** — el string no está en el `ALLOWED_STAGES` que corre de verdad, solo en el repo.
+- Todo lo demás de ese commit (escalera, Flujo 5, sorteo) no depende del proxy y ya funciona en vivo.
+
+**Para cerrar esto:**
+
+1. Abrir el proyecto de Apps Script del dashboard, pegar el `apps-script/Code.gs` actual del repo.
+2. Desplegar: lápiz → **New version** sobre el deployment existente `…qll5X-MnC3gZ` — nunca "New deployment" (regla D-092).
+3. Correr `syncSettings()` una vez, para sembrar `videoSnoozeDays` (default 2) en la pestaña Settings.
+4. Confirmar en vivo: `ping` al proxy debe reportar `version: 6`, y escribir `Collection — video check snoozed` debe aceptarse.
+
+También sigue abierto, señalado en la entrada de ayer y no resuelto todavía: si `outreachInitial` debería llevar `D-109` o `D-110` (§ "Los dos mensajes de la rifa quedan cargados").
+
+---
+
 ## 2026-08-17 — La fila de puntos de entradas queda solo para Collecting
 
 Cierra el punto que quedó señalado en la entrada de hoy sobre la escalera de etapas.
