@@ -56,7 +56,12 @@
     if (t.readyForReview)       badges += '<span class="badge badge--ok">ready</span>';
 
     var mid = "";
-    if (t.stage.key === "collecting" || t.stage.key === "invited") {
+    // Collecting only. Under the old ladder Invited meant the kickoff had
+    // fired, so inputs could already be arriving and the dots were the point.
+    // Now Invited means the client said yes and nothing has been sent — no
+    // folder, no fan-out, so it is 0/6 by construction. A row of empty dots
+    // that can only ever read 0/6 informs nothing.
+    if (t.stage.key === "collecting") {
       mid = '<div class="card__dots">' + dots(t) + "</div>" +
             '<div class="card__meta">' + t.inputsArrived + "/" + CFG.INPUTS.length + " inputs</div>";
     } else if (t.stage.key === "producing" || t.stage.key === "review") {

@@ -13,6 +13,18 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-17 — La fila de puntos de entradas queda solo para Collecting
+
+Cierra el punto que quedó señalado en la entrada de hoy sobre la escalera de etapas.
+
+`pipeline-board.js` dibujaba los seis puntos de entradas para `collecting` **y** `invited`. Bajo la escalera vieja eso era correcto: Invited significaba que el kickoff ya se había disparado, así que las entradas podían estar llegando y los puntos eran justamente el dato.
+
+Con la escalera nueva Invited significa que el cliente dijo que sí y todavía no se le mandó nada — sin kickoff no hay carpeta ni fan-out, así que es **0/6 garantizado**. Una fila de puntos vacíos que solo puede leer 0/6 no informa nada, y es exactamente el tipo de ruido que el cambio de escalera venía a quitar.
+
+Verificado: en Invited no se dibuja ni la fila ni el contador; en Collecting siguen ambos. Contra los datos reales, el número de filas de puntos coincide con el número de clientes en Collecting (Jennifer 3/6 y Heather 4/6; Allen y Christine, en Outreach, sin fila). La barra de progreso de piezas de Producing/Review quedó intacta, la huella de tareas no se movió y `alerts.problems` sigue vacío.
+
+---
+
 ## 2026-08-17 — La escalera se corre un lugar, y tres reglas que la producción real destapó
 
 Cuatro cambios decididos con Bernardo, en un solo commit, espejo del digest incluido (D-103/D-104). Los cuatro salieron de mirar el tablero con clientes de verdad, no de rediseñar en abstracto.

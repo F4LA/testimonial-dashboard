@@ -346,7 +346,9 @@ Found by verifying against the live sheets on 2026-08-07. The file is otherwise 
 
 The backbone: one card per active testimonial in its single current position. Eight stage columns plus terminal and indeterminate columns when non-empty. Replaces the Asana board **and** the tracker tab — production tracking is not a separate place, it is the same testimonial in stages 4–6.
 
-Each card carries the name, coach, badges (`part N`, `inferred`, `former`, `unresolved`, flag count, `ready`), a stage-appropriate middle (input dots in Invited/Collecting, a piece progress bar in Producing/Review, the closing note when terminal), and **time in stage** coloured amber at 72h and red at 168h — a stuck testimonial is visible at a glance.
+Each card carries the name, coach, badges (`part N`, `inferred`, `former`, `unresolved`, flag count, `ready`), a stage-appropriate middle (input dots in **Collecting only**, a piece progress bar in Producing/Review, the closing note when terminal), and **time in stage** coloured amber at 72h and red at 168h — a stuck testimonial is visible at a glance.
+
+The dots are **Collecting only**. They used to show in Invited too, which was right under the old ladder: Invited then meant the kickoff had fired, so inputs could already be arriving. Since the ladder moved up a rung (§4.4), Invited means the client said yes and nothing has been sent — no folder, no fan-out — so it is `0/6` by construction. A row of empty dots that can only ever read `0/6` informs nothing.
 
 Columns sort **longest-in-stage first**, so the most at-risk card is always on top. A coach filter narrows the board.
 
