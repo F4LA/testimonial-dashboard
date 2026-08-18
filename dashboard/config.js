@@ -105,6 +105,17 @@
     PIPELINE_DECLINED:        "Pipeline — declined",
     PIPELINE_DROPPED:         "Pipeline — dropped",
 
+    // "Yes, but next month" (D-120). NOT terminal: the client said yes. While a
+    // postponement is pending the testimonial generates no tasks at all, and the
+    // target month it carries is read by RaffleFold.monthOf() as one more source
+    // of the SAME month answer — there is no second month mechanism. Event text
+    // must contain the target month as YYYY-MM FIRST, exactly like
+    // RAFFLE_MONTH_MOVED, because monthOf() parses the first one it finds.
+    PIPELINE_POSTPONED:        "Pipeline — postponed to month",
+    // Undo, for a misclick. Carries the month the client goes BACK to, so one
+    // write both ends the postponement and returns the raffle entry.
+    PIPELINE_POSTPONE_CANCELLED: "Pipeline — postponement cancelled",
+
     NOTE:                     "Note",
 
     RAFFLE_WINNER:            "Raffle — winner confirmed",
@@ -163,7 +174,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 6,
+    EXPECTED_PROXY_VERSION: 7,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.

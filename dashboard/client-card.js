@@ -346,6 +346,121 @@
       "</tbody></table></section>";
   }
 
+  /* ---------- Postponement: "yes, but next month" (D-120) ---------- */
+
+  // Only while there is something to postpone. Past Collecting the material is
+  // already in the house and there is nothing left to pause.
+  var POSTPONABLE = ["outreach", "invited", "collecting"];
+
+  function postponementBlock(t) {
+    if (t.stage.terminal) return "";
+    var p = t.postponement || { pending: false };
+    var F = root.RaffleFold;
+
+    if (p.pending) {
+      return '<section class="section section--paused">' +
+        "<h3>Postponed — waiting for " + esc(F ? F.monthLabel(p.month) : p.month) + "</h3>" +
+        '<p class="section__sub">Every task for this client is paused. On ' +
+        esc(fmtWhen(p.resumeDate).replace(/,.*$/, "")) +
+        ", the first business day of " + esc(F ? F.monthLabel(p.month) : p.month) +
+        ", Gaby gets the task to send the outreach. Their raffle entry sits in that month too.</p>" +
+        '<div class="actions">' +
+          '<button class="btn btn--sm" data-act="cancel-postponement">Cancel the postponement</button>' +
+        "</div>" +
+        '<p class="sub">Cancelling brings them back to where they were, and returns their raffle ' +
+        "entry to its original month. It exists because this button silences a client for a whole " +
+        "month, and nothing would raise a task to tell you a misclick had done it.</p></section>";
+    }
+
+    if (POSTPONABLE.indexOf(t.stage.key) < 0) return "";
+
+    return '<section class="section">' +
+      "<h3>Postponed to another month?</h3>" +
+      '<p class="section__sub">For a client who says yes but asks to start later. They are not ' +
+      "declined and not dropped — they said yes.</p>" +
+      '<div class="actions">' +
+        '<button class="btn" data-act="postpone">Postpone to another month</button>' +
+      "</div></section>";
+  }
+
+  /**
+   * The month picker. Six months, starting at NEXT month — the current month is
+   * not an option (postponing to the month you are already in means nothing)
+   * and a past month never is. Next month is preselected: it is what almost
+   * every client means by "next month".
+   */
+  function monthChoices() {
+    var F = root.RaffleFold;
+    var out = [], k = F.currentMonth();
+    for (var i = 0; i < 6; i++) { k = F.nextMonth(k); out.push({ value: k, label: F.monthLabel(k) }); }
+    return out;
+  }
+
+  /**
+   * Ask, then hand back the single event to write — or null if cancelled.
+   * Exported, because the same dialog is offered from the queue's reply-check
+   * task and from this card, and two copies of a confirmation dialog is two
+   * places for the consequences to drift apart.
+   */
+  function askPostpone(t) {
+    var F = root.RaffleFold;
+    var name = t.identity.clientName || t.email;
+    var opts = monthChoices();
+    var m = F.monthOf(t);
+    var count = (t.repeats || {})[root.StateBuilder.normStage(S.PIPELINE_POSTPONED)] || 0;
+
+    // Information, not a limit. There is no cap on postponements — a client who
+    // keeps asking for one more month is a fact to see, not an error to block.
+    var history = count
+      ? " This client has already been postponed " +
+        (count === 1 ? "once" : count + " times") +
+        (F.isMonthKey(m.from) ? ", from " + F.monthLabel(m.from) : "") + "."
+      : "";
+
+    return root.Dialog.confirm({
+      title: "Postpone " + name + " to another month",
+      body: name + " said yes but asked to start later, so nothing should be chased until then." + history,
+      consequences: [
+        "Every task for them stops: outreach, follow-ups, the video check, the coach form, Everfit and photos.",
+        "Their raffle entry moves to the month you choose, so this month's draw stops waiting on them.",
+        "On the first business day of that month, Gaby gets the task to send them the outreach.",
+        "They stay where they are on the board, dimmed — this is not declined and not dropped."
+      ],
+      select: { label: "Start them in", placeholder: "— choose a month —",
+                options: opts, value: opts[0].value },
+      confirmLabel: "Postpone",
+      tone: "normal"
+    }).then(function (res) {
+      if (!res || !F.isMonthKey(res.selected)) return null;
+      return { stage: S.PIPELINE_POSTPONED, event: F.postponeText(m.month, res.selected) };
+    });
+  }
+
+  /** The undo. ONE write: it ends the postponement and returns the month. */
+  function askCancel(t) {
+    var F = root.RaffleFold;
+    var name = t.identity.clientName || t.email;
+    var m = F.monthOf(t);
+    // Where they came from. `from` is the previous month-setting event's target,
+    // or the entry month when this is the first move.
+    var back = F.isMonthKey(m.from) ? m.from : F.currentMonth();
+
+    return root.Dialog.confirm({
+      title: "Cancel " + name + "'s postponement",
+      body: "Their tasks resume immediately, from where they were before the postponement.",
+      consequences: [
+        "Their raffle entry goes back to " + F.monthLabel(back) + ".",
+        "The task ladder they were on picks up again, on its existing clocks.",
+        "The postponement stays in the timeline — this records the reversal, it does not erase it."
+      ],
+      confirmLabel: "Cancel the postponement",
+      tone: "normal"
+    }).then(function (ok) {
+      if (!ok) return null;
+      return { stage: S.PIPELINE_POSTPONE_CANCELLED, event: F.cancelText(back, m.month) };
+    });
+  }
+
   /* ---------- Terminal ---------- */
 
   function terminalBlock(t) {
@@ -480,7 +595,8 @@
       return '<section class="section"><a class="backlink" href="#/board">← Board</a>' +
              "<h2>Not found</h2><p class='sub'>No testimonial for <code>" + esc(key) + "</code>.</p></section>";
     }
-    return header(t) + kickoffBlock(t) + inputsBlock(t) + piecesBlock(t) + advanceBlock(t) +
+    return header(t) + postponementBlock(t) +
+           kickoffBlock(t) + inputsBlock(t) + piecesBlock(t) + advanceBlock(t) +
            timeline(t) + recognitions(t) + terminalBlock(t) +
            '<div id="cardResult" class="result"></div>';
   }
@@ -588,6 +704,13 @@
 
       } else if (act === "fire-fanout") {
         fireFanout(t, btn, say);
+        return;
+
+      } else if (act === "postpone" || act === "cancel-postponement") {
+        (act === "postpone" ? askPostpone(t) : askCancel(t)).then(function (ev) {
+          if (!ev) { say("Cancelled — nothing was written.", ""); return; }
+          write(btn, say, ev.stage, ev.event);
+        });
         return;
 
       } else if (act === "declined" || act === "dropped") {
@@ -704,5 +827,6 @@
     }
   }
 
-  root.ClientCard = { render: render, wire: wire, fmtWhen: fmtWhen, collectionLock: collectionLock };
+  root.ClientCard = { render: render, wire: wire, fmtWhen: fmtWhen, collectionLock: collectionLock,
+                      askPostpone: askPostpone, askCancel: askCancel, POSTPONABLE: POSTPONABLE };
 })(typeof window !== "undefined" ? window : this);

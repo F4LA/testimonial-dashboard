@@ -349,6 +349,59 @@
     return m ? m[0] : "";
   }
 
+  /* ---------- Postponement: "yes, but next month" (D-120) ---------- */
+
+  /** (timestamp, row) — the same order the whole fold uses. */
+  function newer(a, b) {
+    if (!a) return false;
+    if (!b) return true;
+    if (a.ts !== b.ts) return a.ts > b.ts;
+    return a.rowNumber > b.rowNumber;
+  }
+
+  /**
+   * A client who answered the outreach with "yes, but next month" is neither
+   * accepted nor silent, and the two buttons that existed said one or the other.
+   * Both lie: "yes" starts the whole collection and chases them all month, "no
+   * reply" sends two follow-ups to someone who did reply.
+   *
+   * PENDING IS NOT SWITCHED OFF BY THE DATE. It ends when the new outreach
+   * exists (or when the postponement is cancelled). Ending it on the date would
+   * re-arm the OLD ladder: on 1 September a client postponed in August would
+   * instantly be handed a follow-up thirty days overdue, anchored on an outreach
+   * from the month they explicitly asked to skip. The date does one thing only —
+   * it lets Gaby's "send the outreach" task appear.
+   *
+   * THE MONTH IS NOT THE EVENT'S PAYLOAD. It is whatever `monthOf` resolves,
+   * which reads the postponement, the cancellation and the raffle's own move
+   * button as three sources of one answer. So if the month is later moved from
+   * the raffle view, the client comes back in the month they actually sit in —
+   * by construction, with nothing to keep in sync.
+   */
+  function postponementOf(t) {
+    var NONE = { pending: false, month: "", resumeDate: NaN, at: NaN, count: 0, event: null };
+    var post = t.lastByStage[normStage(CFG.STAGES.PIPELINE_POSTPONED)] || null;
+    if (!post) return NONE;
+
+    var cancelled = t.lastByStage[normStage(CFG.STAGES.PIPELINE_POSTPONE_CANCELLED)] || null;
+    if (newer(cancelled, post)) return NONE;
+
+    // The one thing that ends it: outreach sent AFTER the postponement.
+    var sent = t.lastByStage[normStage(CFG.STAGES.OUTREACH_SENT)] || null;
+    if (newer(sent, post)) return NONE;
+
+    // RaffleFold loads after this file; build() runs long after both.
+    var month = root.RaffleFold ? root.RaffleFold.monthOf(t).month : "";
+    return {
+      pending: true,
+      month: month,
+      resumeDate: root.RaffleFold ? root.RaffleFold.firstBusinessDay(month) : NaN,
+      at: post.ts,
+      count: t.repeats[normStage(CFG.STAGES.PIPELINE_POSTPONED)] || 1,
+      event: post
+    };
+  }
+
   /* ---------- Public: fold the whole log ---------- */
 
   function build(data) {
@@ -399,6 +452,24 @@
     });
     testimonials.forEach(function (t) {
       t.videoLink = linkByName[t.identity.clientName] || "";
+    });
+
+    // 5b · the postponement (D-120), and what it does to "time in stage".
+    //
+    // The age counter STOPS while a postponed client is waiting: they are not
+    // late, they are not in play, and a rising "7 days in stage" on someone who
+    // asked to be left until September is the false urgency this whole change
+    // exists to remove. From the resume date the clock runs again, counted from
+    // THAT day — not from the August event, which would resurface as a month of
+    // fake delay the morning the task appears.
+    testimonials.forEach(function (t) {
+      t.postponement = postponementOf(t);
+      if (!t.postponement.pending) return;
+      var now = root.TDClock.now();
+      t.postponement.waiting = !(isFinite(t.postponement.resumeDate) && now >= t.postponement.resumeDate);
+      t.hoursInStage = t.postponement.waiting
+        ? NaN
+        : (now - t.postponement.resumeDate) / 36e5;
     });
 
     // 6 · rollups

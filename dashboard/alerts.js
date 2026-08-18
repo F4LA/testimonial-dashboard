@@ -27,6 +27,10 @@
 
     state.testimonials.forEach(function (t) {
       if (t.stage.terminal) return;
+      // The flows are gated in `Flows.evaluate`, but these items are not walked
+      // through it. A postponed client must produce ZERO tasks (D-120), and a
+      // stale Meet flag is still a task in Gaby's queue.
+      if (t.postponement && t.postponement.pending) return;
       var name = t.identity.clientName || t.email;
 
       t.flags.forEach(function (f) {

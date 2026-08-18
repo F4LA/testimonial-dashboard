@@ -35,6 +35,25 @@
     return Math.round(h / 24) + "d";
   }
 
+  /* ---------- Postponed clients (D-120) ---------- */
+
+  /** Postponed AND the resume day has not arrived — out of play, not late. */
+  function isWaiting(t) {
+    return !!(t.postponement && t.postponement.pending && t.postponement.waiting);
+  }
+
+  function monthName(key) {
+    return root.RaffleFold ? root.RaffleFold.monthLabel(key) : (key || "");
+  }
+
+  /** The resume day, in the sheet's timezone — never the viewer's. */
+  function fmtDay(ts) {
+    if (!isFinite(ts)) return "";
+    var d = new Date(ts + CFG.TZ_OFFSET_MINUTES * 60000);
+    var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return MON[d.getUTCMonth()] + " " + d.getUTCDate();
+  }
+
   function dots(t) {
     return CFG.INPUTS.map(function (inp) {
       var s = t.inputs[inp.key];
@@ -54,6 +73,10 @@
     else if (id.source === "mastersheet") badges += '<span class="badge badge--warn" title="Resolved from Mastersheet Data — no longer an active client">former</span>';
     if (t.flags.length)         badges += '<span class="badge badge--bad">' + t.flags.length + " flag" + (t.flags.length > 1 ? "s" : "") + "</span>";
     if (t.readyForReview)       badges += '<span class="badge badge--ok">ready</span>';
+    // The client said yes and asked for a later month — not declined, not
+    // dropped, and deliberately still in their own column (D-120).
+    if (isWaiting(t))           badges += '<span class="badge badge--wait">waiting for ' +
+                                  esc(monthName(t.postponement.month)) + "</span>";
 
     var mid = "";
     // Collecting only. Under the old ladder Invited meant the kickoff had
@@ -72,19 +95,43 @@
       mid = '<div class="card__meta">' + esc(t.stage.type) + " — " + esc(t.stage.note || "no note") + "</div>";
     }
 
-    return '<a class="card card--client" href="#/client/' + encodeURIComponent(t.key) + '">' +
+    // The age counter STOPS while they wait. A number that keeps climbing on
+    // someone who asked to be left until next month reads as neglect, and the
+    // whole point of the postponement is that they are not late.
+    var age = isWaiting(t)
+      ? '<div class="card__age age--none">paused · resumes ' + esc(fmtDay(t.postponement.resumeDate)) + "</div>"
+      : '<div class="card__age ' + ageClass(t.hoursInStage) + '">' + fmtAge(t.hoursInStage) + " in stage</div>";
+
+    return '<a class="card card--client' + (isWaiting(t) ? " card--paused" : "") +
+      '" href="#/client/' + encodeURIComponent(t.key) + '">' +
       '<div class="card__name">' + esc(name) + "</div>" +
       '<div class="card__coach">' + esc(id.coach || "no coach") + "</div>" +
       (badges ? '<div class="card__badges">' + badges + "</div>" : "") +
       mid +
-      '<div class="card__age ' + ageClass(t.hoursInStage) + '">' + fmtAge(t.hoursInStage) + " in stage</div>" +
+      age +
       "</a>";
   }
 
+  /**
+   * The header separates the two, e.g. "Outreach 1 · 1 waiting for Sep 2026".
+   * A postponed client still lives in this column, but counting them among the
+   * active ones would overstate what is actually in play this month.
+   */
   function column(stage, items) {
+    var waiting = items.filter(isWaiting);
+    var months = {};
+    waiting.forEach(function (t) { if (t.postponement.month) months[t.postponement.month] = 1; });
+    var keys = Object.keys(months);
+
+    var count = (items.length - waiting.length) +
+      (waiting.length
+        ? ' <span class="col__waiting">· ' + waiting.length + " waiting" +
+          (keys.length === 1 ? " for " + esc(monthName(keys[0])) : "") + "</span>"
+        : "");
+
     return '<section class="col">' +
       '<header class="col__head"><span class="col__title">' + esc(stage.label) + "</span>" +
-      '<span class="col__count">' + items.length + "</span></header>" +
+      '<span class="col__count">' + count + "</span></header>" +
       (stage.ball ? '<div class="col__ball">ball: ' + esc(stage.ball) + "</div>" : "") +
       '<div class="col__body">' +
       (items.length ? items.map(card).join("") : '<p class="col__empty">—</p>') +
@@ -106,6 +153,9 @@
     list.forEach(function (t) { (by[t.stage.key] || (by[t.stage.key] = [])).push(t); });
     Object.keys(by).forEach(function (k) {
       by[k].sort(function (a, b) {
+        // Paused clients sink to the bottom: the top of a column is what needs
+        // attention, and they explicitly do not.
+        if (isWaiting(a) !== isWaiting(b)) return isWaiting(a) ? 1 : -1;
         var av = isFinite(a.hoursInStage) ? a.hoursInStage : -1;
         var bv = isFinite(b.hoursInStage) ? b.hoursInStage : -1;
         return bv - av;                        // oldest in stage first — most at risk

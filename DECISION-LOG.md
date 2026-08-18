@@ -13,6 +13,61 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-18 — "Sí, pero el mes que viene": el aplazamiento (D-120)
+
+Implementa el diseño aprobado el 18 de agosto y registrado como D-120 en el repo de gobierno. El diseño estaba cerrado; esta sesión lo construye, no lo rediseña. Un solo commit: flujos, tablero, ficha, cola, espejo del digest y documentación.
+
+**El caso que lo forzó.** Allen Donald contestó al outreach de agosto pidiendo participar en septiembre. La pregunta de la cola ofrecía dos botones y los dos mienten: *"Yes, they're in"* dispara toda la colección y lo persigue el mes entero; *"No reply"* le manda dos seguimientos a alguien que sí respondió. Se quedó sin tocar en la cola acumulando atraso falso, porque apretar cualquiera de los dos hacía daño real.
+
+### Dos eventos nuevos, PROXY_VERSION 7
+
+    Pipeline — postponed to month        payload = mes destino YYYY-MM
+    Pipeline — postponement cancelled    payload = el mes al que vuelve
+
+Ninguno de los dos es terminal. `declined` y `dropped` cierran un testimonio; estos lo pausan — el cliente dijo que sí. En los dos el mes destino va PRIMERO en el texto, porque `monthOf()` toma el primer `YYYY-MM` que encuentra.
+
+**Falta el redespliegue a mano:** editar el deployment existente `…qll5X-MnC3gZ` → *New version* (D-092), nunca "New deployment". Mientras no corra, los dos botones fallan en producción — los strings están en el repo y no en el `ALLOWED_STAGES` que el Web App enforce de verdad.
+
+### Una sola función de mes, leyendo tres strings
+
+`monthOf` leía solo `Raffle — month moved` (D-100). Ahora lee además los dos eventos del aplazamiento, con la misma regla de que gana el último. El aplazamiento **no** escribe además un `Raffle — month moved`: sería una segunda anotación que dice lo mismo y que puede separarse — una de las dos podría quedar superada sola. Después de este cambio el mes de un testimonio lo decide una función, en un lugar.
+
+**Consecuencia verificada, no programada:** la compuerta del sorteo (D-119) recorre el grupo del mes, así que un cliente aplazado sale de agosto por construcción. No se le agregó ninguna condición nueva a la compuerta, y no debe agregársele: dentro del grupo de un mes la marca de "movido" significa movido HACIA ese mes, y esa gente sigue teniendo que resolverse.
+
+### Una compuerta, arriba de las escaleras
+
+    var flows = (t.postponement && t.postponement.pending) ? [flowPostponed] : FLOWS;
+
+Se pregunta UNA vez, en `Flows.evaluate`, no como condición dentro de cada flujo. El modo de fallar de las condiciones por flujo es el próximo flujo que alguien escriba, que las ignora en silencio. `alerts.js reviewTasks` repite la compuerta porque sus items no pasan por `evaluate` y un flag viejo sigue siendo una tarea en la cola de Gaby.
+
+### `pending` se apaga con el outreach nuevo, NUNCA con la fecha
+
+Si se apagara por fecha, el 1 de septiembre se re-armaría la escalera vieja y Allen recibiría al instante un seguimiento con treinta días de atraso, anclado en un outreach del mes que pidió saltarse. La fecha hace una sola cosa: deja aparecer la tarea de Gaby.
+
+### El escalón de regreso
+
+Dueña Gaby, condición `pending && hoy >= resumeDate`, texto *"Send the outreach to [Cliente], they asked to move to this month"* (más *", they have asked to move month N times"* si hubo más de uno), y el botón de copiar reutiliza `outreachInitial` — la copia aprobada en D-109, sin escribir texto nuevo. Cierra con **"Outreach sent"**, que escribe el evento normal de outreach: apaga `pending` y la escalera arranca de cero desde hoy.
+
+**Ningún plazo nuevo en Settings.** Los demás escalones esperan un umbral medido desde un evento; este espera una fecha que ya está en el dato. `hours: 0` con `resumeDate` como ancla. `resumeDate` = primer día lunes-a-viernes del mes, medianoche en la zona de la hoja. Los feriados no se modelan a propósito: un feriado le cuesta un día a la tarea, y una tabla de feriados es otra cosa que mantener que se desactualiza en silencio. Es regla de calendario, no umbral — no hay ajuste que pueda cambiar qué significa "el primer día hábil".
+
+### Tablero
+
+El cliente no cambia de columna y no hay columna nueva. Mientras espera: tarjeta atenuada al fondo de su columna con chip *"waiting for Sep 2026"* construido del dato, el contador de antigüedad **detenido** (`paused · resumes Sep 1`), el encabezado separando (`Outreach 1 · 1 waiting for Sep 2026`), y fuera del buffer y de los bloqueantes de publicación — misma razón que D-117: quien no está en juego este mes no puede contaminar el número que dice qué frena la publicación. Desde `resumeDate` vuelve a los conteos normales y su antigüedad cuenta desde ese día, no desde el evento de agosto.
+
+### Cancelar
+
+Enlace en la ficha, visible solo mientras `pending`. Una escritura que apaga el aplazamiento y devuelve la entrada del sorteo al mes original. Existe porque este botón silencia a un cliente un mes entero y apaga todas las tareas que avisarían: sin deshacer, un clic equivocado lo saca del trabajo sin que nada levante la mano. No hay tope de aplazamientos; el diálogo muestra el historial como información, no como bloqueo.
+
+### Verificación
+
+Banco de pruebas en Node cargando los módulos reales (no reimplementaciones) con datos sintéticos y reloj simulado, más los puros de `Digest.gs` con stubs — **33 comprobaciones, todas en verde**. Cubre los seis puntos de la prueba de aceptación previa a producción: cero tareas al aplazar desde Outreach; exactamente la tarea de Gaby en la fecha, con la copia D-109, sin placeholders sin llenar y sin em dashes; "Outreach enviado" arranca la escalera nueva y a las 25h da `reply-check` (25h de antigüedad, no 30 días); segundo aplazamiento con el texto de dos veces; cancelación devolviendo cliente y mes; y aplazar desde Collecting apagando también video, formulario del coach y Everfit. Un control confirma que la misma forma SIN aplazamiento sí genera tareas, para que el cero no pase por vacío.
+
+Huella de tareas idéntica entre tablero y digest en los siete escenarios (sin aplazar, esperando, día de regreso, +5d, outreach re-enviado, aplazado dos veces, cancelado). `dSelfCheckPostponement_()` agrega los invariantes estructurales del lado del digest, y `selfCheck()` los asegura además contra el log vivo.
+
+**Pendiente, y es de producción:** con el proxy en 6 el caso real de Allen Donald no se puede cerrar todavía. Después del redespliegue a 7, aplazarlo a septiembre debería sacarlo de la lista de espera del sorteo de agosto (hoy: Allen Donald, Christine Demetriou y Jennifer Dickey; después: Christine y Jennifer), dejarlo atenuado en Outreach con chip de septiembre y sin ninguna tarea suya en la cola ni en el resumen.
+
+---
+
 ## 2026-08-18 — RESUELTO: el proxy ya está en versión 6 (la nota de ayer quedó vieja)
 
 La entrada de ayer, "PENDIENTE ABIERTO: el proxy sigue en versión 5" (más abajo), ya no es cierta y no se edita — se registra la resolución acá, aparte, como manda la regla de append-only de este archivo.

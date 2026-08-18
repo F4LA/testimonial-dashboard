@@ -310,9 +310,15 @@
         flow: "outreach", rung: "reply-check", owner: "Gaby",
         hours: s.outreachReplyCheckHours, anchor: sent,
         title: "Did " + v.Client + " reply in Everfit that they're in?",
+        // THREE answers, because the real one was missing (D-120). A client who
+        // replies "yes, but next month" is neither: "Yes, they're in" starts the
+        // whole collection and chases them all month, "No reply" sends two
+        // follow-ups to somebody who did reply. Both were lies, so the queue had
+        // no honest button for the first real case that hit it.
         actions: [
           { label: "Yes, they're in", stage: S.OUTREACH_ACCEPTED, tone: "ok",
             event: v.Client + " accepted" },
+          { label: "Yes, but next month", dialog: "postpone" },
           { label: "No reply", stage: S.OUTREACH_NO_REPLY, event: "No reply from " + v.Client }
         ]
       });
@@ -669,6 +675,43 @@
     });
   }
 
+  /* ======================================================================
+   * POSTPONED · "yes, but next month" (D-120) — Gaby
+   *
+   * The ONLY rung a postponed client can produce. Everything else is switched
+   * off by the gate in evaluate(), not by a condition inside each flow.
+   *
+   * NO NEW SETTINGS KEY. Every other rung waits a threshold measured from an
+   * event; this one waits for a DATE that is already in the data — the first
+   * business day of the month the client asked for. A duration setting here
+   * would be a second, softer answer to a question the client already
+   * answered, so `hours: 0` and the anchor IS the resume date: the task
+   * appears that morning and not before. It escalates the way every other
+   * zero-threshold rung does — `waitedHours` grows, so an untouched one keeps
+   * climbing the queue.
+   * ====================================================================== */
+
+  function flowPostponed(t, s, h, v) {
+    var p = t.postponement;
+    if (!p || !p.pending || !isFinite(p.resumeDate)) return null;
+
+    // The client asked for this month; the copy is the same first invitation
+    // they were sent before (D-109), so nothing new is written or approved.
+    var again = p.count > 1 ? ", they have asked to move month " + p.count + " times" : "";
+
+    return rung({
+      flow: "postponement", rung: "resume", owner: "Gaby",
+      hours: 0, anchor: { ts: p.resumeDate },
+      title: "Send the outreach to " + v.Client + ", they asked to move to this month" + again + ".",
+      detail: "They said yes but asked to start this month. Everything for them has been paused " +
+              "since then. Marking the outreach sent restarts the normal ladder from today, with " +
+              "the reply check and the follow-ups on their usual clocks.",
+      template: "outreachInitial",
+      actions: [{ label: "Outreach sent", stage: S.OUTREACH_SENT, tone: "ok",
+                  event: "Outreach sent on Everfit from Bernardo's account" }]
+    });
+  }
+
   var FLOWS = [flowOutreach, flowVideo, flowCoachForm, flowManualPulls, flowContent, flowApproval,
                flowRaffleMonth, flowRaffleMessages];
 
@@ -696,8 +739,17 @@
       month: root.RaffleFold ? root.RaffleFold.monthOf(t).month : ""
     };
 
+    /* ONE GATE, ABOVE THE LADDERS (D-120).
+     *
+     * A postponed client is out of play: no outreach, no follow-ups, no video
+     * check, no coach form, no Everfit and photos, nothing. Asking once here
+     * rather than adding a precondition to each flow means the next flow anyone
+     * writes is covered without having to remember this — the failure mode of
+     * per-flow conditions is a new flow that quietly ignores them. */
+    var flows = (t.postponement && t.postponement.pending) ? [flowPostponed] : FLOWS;
+
     var out = [];
-    FLOWS.forEach(function (fn) {
+    flows.forEach(function (fn) {
       var task = fn(t, settings, h, vars);
       if (!task) return;
       task.vars = vars;

@@ -30,8 +30,9 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    3 — + the v2 task-model Stage strings (D-090)
  *    4 — + column G "Week" for scheduling (Phase 4)
  *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk)
- *    6 — + "Collection — video check snoozed" (the two-state video check) */
-var PROXY_VERSION = 6;
+ *    6 — + "Collection — video check snoozed" (the two-state video check)
+ *    7 — + the two postponement strings ("yes, but next month", D-120) */
+var PROXY_VERSION = 7;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -103,6 +104,10 @@ var ALLOWED_STAGES = [
   'Publish — live',
   'Pipeline — declined',
   'Pipeline — dropped',
+  // "Yes, but next month" (D-120). Like the raffle move, the event text must
+  // carry the target month as YYYY-MM FIRST — monthOf() parses the first one.
+  'Pipeline — postponed to month',
+  'Pipeline — postponement cancelled',
   'Note',
   'Raffle — winner confirmed',
   'Raffle — messages sent',

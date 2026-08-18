@@ -48,7 +48,12 @@
               '<select id="modalSelect">' +
                 '<option value="">' + esc(o.select.placeholder || "— choose —") + "</option>" +
                 o.select.options.map(function (op) {
-                  return '<option value="' + esc(op.value) + '">' + esc(op.label) + "</option>";
+                  // `value` preselects one — used where the choice has an
+                  // obvious default (the postponement defaults to next month)
+                  // rather than making the reader pick the common case by hand.
+                  return '<option value="' + esc(op.value) + '"' +
+                    (o.select.value && o.select.value === op.value ? " selected" : "") +
+                    ">" + esc(op.label) + "</option>";
                 }).join("") +
               "</select>"
             : "") +

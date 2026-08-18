@@ -157,6 +157,30 @@
     return isMonthKey(key) && key < currentMonth();
   }
 
+  /**
+   * The first business day of a month, as the instant that day STARTS in the
+   * project's timezone (D-120). Business day = Monday to Friday; holidays are
+   * deliberately not modelled — a holiday costs the task one day, and a holiday
+   * table is a second thing to maintain that goes stale silently.
+   *
+   * This is a CALENDAR RULE, not a threshold, which is why it is written in
+   * code while every duration in the system lives in the Settings tab. There is
+   * no setting that could make "the first business day" mean something else.
+   *
+   * Returns a timestamp so the comparison is `now >= resumeDate` — a DATE
+   * comparison, since the value is midnight in the sheet's timezone rather than
+   * an hour offset from some event.
+   */
+  function firstBusinessDay(key) {
+    var m = /^(\d{4})-(\d{2})$/.exec(String(key || ""));
+    if (!m) return NaN;
+    var y = +m[1], mo = +m[2] - 1, day = 1;
+    // getUTCDay on a UTC-built date: the calendar date is what we asked for, so
+    // the weekday is right regardless of where the browser is.
+    while ([0, 6].indexOf(new Date(Date.UTC(y, mo, day)).getUTCDay()) >= 0) day++;
+    return Date.UTC(y, mo, day) - OFFSET;
+  }
+
   /* ---------- Which month a testimonial belongs to ---------- */
 
   /**
@@ -197,18 +221,34 @@
   }
 
   /**
-   * The `Raffle — month moved` events that carry a readable target, oldest
-   * first. Events arrive ordered by (timestamp, row), so this order is the
-   * order the decisions were made. A move whose text holds no valid month is
-   * skipped rather than guessed at — it cannot move anybody.
+   * Every event that names a month for this testimonial, oldest first. Events
+   * arrive ordered by (timestamp, row), so this order is the order the
+   * decisions were made, and the LAST one wins. An event whose text holds no
+   * valid month is skipped rather than guessed at — it cannot move anybody.
+   *
+   * THREE SOURCES, ONE ANSWER (D-120). The raffle's own move button is one of
+   * them; the other two come from the pipeline postponement, which moves the
+   * client's month as part of the same gesture:
+   *
+   *   Raffle — month moved            Gaby moves the entry from the raffle view
+   *   Pipeline — postponed to month   "yes, but next month" — target month
+   *   Pipeline — postponement cancelled   the undo — the month it goes BACK to
+   *
+   * The postponement deliberately does NOT also write `Raffle — month moved`.
+   * A second row saying the same thing is a second thing that can drift, and
+   * one of the two could later be superseded alone. After D-120 exactly one
+   * function decides a testimonial's month, by reading three strings.
    */
+  var MONTH_SOURCES = [S.RAFFLE_MONTH_MOVED, S.PIPELINE_POSTPONED, S.PIPELINE_POSTPONE_CANCELLED];
+
   function moveTargets(t) {
-    var want = root.StateBuilder.normStage(S.RAFFLE_MONTH_MOVED);
+    var want = MONTH_SOURCES.map(function (s) { return root.StateBuilder.normStage(s); });
     var out = [];
     (t.events || []).forEach(function (ev) {
-      if (root.StateBuilder.normStage(ev.stage) !== want) return;
+      var n = root.StateBuilder.normStage(ev.stage);
+      if (want.indexOf(n) < 0) return;
       var m = /(\d{4}-\d{2})/.exec(String(ev.event || ""));
-      if (m && isMonthKey(m[1])) out.push({ month: m[1], ev: ev });
+      if (m && isMonthKey(m[1])) out.push({ month: m[1], ev: ev, stage: n });
     });
     return out;
   }
@@ -354,6 +394,21 @@
   /** The move button's event text. The YYYY-MM is what `monthOf` parses back. */
   function moveText(fromMonth, toMonth) {
     return "Moved to the " + toMonth + " raffle (from " + fromMonth + ")";
+  }
+
+  /**
+   * The postponement's event text (D-120). The TARGET month comes first for the
+   * same reason as `moveText`: `monthOf` takes the first YYYY-MM it finds.
+   */
+  function postponeText(fromMonth, toMonth) {
+    return "Postponed to " + toMonth + " at the client's request (from " + fromMonth + "). " +
+           "All their tasks are paused until the first business day of " + monthLabel(toMonth) + ".";
+  }
+
+  /** The undo. `backToMonth` FIRST — it is the month the client returns to. */
+  function cancelText(backToMonth, fromMonth) {
+    return "Postponement cancelled, back to " + backToMonth + " (was " + fromMonth + "). " +
+           "Their tasks resume now.";
   }
 
   /* ---------- The monthly fold ---------- */
@@ -674,6 +729,9 @@
     drawFrom: drawFrom,
     snapshotText: snapshotText,
     moveText: moveText,
+    postponeText: postponeText,
+    cancelText: cancelText,
+    firstBusinessDay: firstBusinessDay,
     selfCheck: selfCheck,
     PREFS: PREFS
   };

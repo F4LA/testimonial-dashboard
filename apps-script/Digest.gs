@@ -173,7 +173,11 @@ var D_S = {
   RAFFLE_WINNER:     'Raffle — winner confirmed',
   RAFFLE_MESSAGES:   'Raffle — messages sent',
   RAFFLE_MONTH_ADDED:'Raffle — month added',
-  RAFFLE_MONTH_MOVED:'Raffle — month moved'
+  RAFFLE_MONTH_MOVED:'Raffle — month moved',
+
+  /* --- postponement, "yes but next month" (D-120) --- */
+  POSTPONED:           'Pipeline — postponed to month',
+  POSTPONE_CANCELLED:  'Pipeline — postponement cancelled'
 };
 var D_PIECES = [
   { key: 'carousel',    label: 'Carousel',                  owner: 'Agent',  stage: 'Production — carousel' },
@@ -216,6 +220,56 @@ function dMonthKey_(ms) {
 }
 
 function dIsMonthKey_(s) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || '')); }
+
+/**
+ * Mirror of raffle.js `firstBusinessDay` (D-120). The instant the first
+ * Monday-to-Friday day of `key` STARTS in the sheet's timezone. Holidays are
+ * deliberately not modelled. A calendar rule, not a threshold — there is no
+ * Settings value that could make "the first business day" mean something else.
+ */
+function dFirstBusinessDay_(key) {
+  var m = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return NaN;
+  var y = +m[1], mo = +m[2] - 1, day = 1;
+  while ([0, 6].indexOf(new Date(Date.UTC(y, mo, day)).getUTCDay()) >= 0) day++;
+  return Date.UTC(y, mo, day) - TZ_OFFSET_MIN * 60000;
+}
+
+/**
+ * Mirror of state-builder.js `postponementOf` (D-120).
+ *
+ * PENDING IS NOT SWITCHED OFF BY THE DATE — it ends when the new outreach
+ * exists, or when the postponement is cancelled. Ending it on the date would
+ * re-arm the OLD ladder and hand out a follow-up anchored on an outreach from
+ * the month the client asked to skip. The date only lets the resume task exist.
+ *
+ * `month` is what dMonthOf_ resolves, never the event's own payload, so a later
+ * move from the raffle view carries the return month with it.
+ */
+function dPostponement_(L, repeats, month, now) {
+  var NONE = { pending: false, month: '', resumeDate: NaN, waiting: false, count: 0 };
+  var post = L(D_S.POSTPONED);
+  if (!post) return NONE;
+
+  function newer(a, b) {
+    if (!a) return false;
+    if (!b) return true;
+    if (a.ts !== b.ts) return a.ts > b.ts;
+    return a.row > b.row;
+  }
+  if (newer(L(D_S.POSTPONE_CANCELLED), post)) return NONE;
+  if (newer(L(D_S.OUTREACH_SENT), post)) return NONE;
+
+  var resume = dFirstBusinessDay_(month);
+  return {
+    pending: true,
+    month: month,
+    resumeDate: resume,
+    waiting: !(isFinite(resume) && now >= resume),
+    count: repeats[dNorm_(D_S.POSTPONED)] || 1,
+    at: post.ts
+  };
+}
 
 /**
  * Mirror of sheets-reader.js `monthSetting`. Sheets coerces the "2026-08" the
@@ -299,9 +353,15 @@ function dMonthOf_(evs, firstTs) {
   // valid one decides the month; a move with no readable month is skipped rather
   // than guessed at. `from` is the PREVIOUS move's target, not the entry month,
   // so a round trip does not claim someone moved from the month they are in.
+  //
+  // THREE SOURCES, ONE ANSWER (D-120): the raffle's own move button, plus the
+  // two postponement events, which carry a month as part of the same gesture.
+  // The postponement deliberately does not ALSO write `Raffle — month moved`.
+  var SOURCES = [D_S.RAFFLE_MONTH_MOVED, D_S.POSTPONED, D_S.POSTPONE_CANCELLED]
+    .map(function (s) { return dNorm_(s); });
   var moves = [];
   (evs || []).forEach(function (ev) {
-    if (dNorm_(ev.stage) !== dNorm_(D_S.RAFFLE_MONTH_MOVED)) return;
+    if (SOURCES.indexOf(dNorm_(ev.stage)) < 0) return;
     var m = /(\d{4}-\d{2})/.exec(String(ev.event || ''));
     if (m && dIsMonthKey_(m[1])) moves.push({ month: m[1], ev: ev });
   });
@@ -561,10 +621,17 @@ function dFold_() {
     var rMonth = dMonthOf_(evs, firstTs);
     var rComp = dCompliance_(dRaffleConditions_(L, inputs.video, arrived));
 
+    /* --- postponement (mirror of state-builder.js step 5b, D-120) --- */
+    var postp = dPostponement_(L, repeats, rMonth.month, Date.now());
+    // The age counter stops while they wait, and restarts from the resume date
+    // rather than from the event they were paused on — same rule as the board.
+    var ageAt = postp.pending ? postp.resumeDate : at;
+
     out.push({
       email: evs[0].email, cycle: evs[0].cycle, key: k,
       stage: stage || 'indeterminate', at: at,
-      hours: isFinite(at) ? (Date.now() - at) / 36e5 : NaN,
+      hours: (postp.pending && postp.waiting) ? NaN
+             : (isFinite(ageAt) ? (Date.now() - ageAt) / 36e5 : NaN),
       inputs: inputs, arrived: arrived, pieces: pieces, piecesDone: done,
       complete: !!L(D_S.COMPLETE),
       /* --- what the v2 flows read (mirror of state-builder.js) --- */
@@ -581,6 +648,7 @@ function dFold_() {
       raffleMonthAdded: !!L(D_S.RAFFLE_MONTH_ADDED),
       raffleMessagesSent: !!L(D_S.RAFFLE_MESSAGES),
       raffleEntryTs: firstTs,
+      postponement: postp,
       schedPost: !!L(D_S.SCHED_POST), schedEmail: !!L(D_S.SCHED_EMAIL),
       flags: ['meet', 'loom', 'coachForm', 'video', 'everfit', 'photos'].filter(function (kk) {
         return inputs[kk].state === 'flagged';
@@ -921,6 +989,30 @@ function dFlowRaffleMessages_(t, s, h, v) {
   });
 }
 
+/* ---------- POSTPONED · "yes, but next month" (D-120) — Gaby ----------
+ *
+ * Mirror of flows.js `flowPostponed`. The only rung a postponed client can
+ * produce; everything else is switched off by the gate in dEvaluate_.
+ *
+ * NO NEW SETTINGS KEY: the wait is a DATE already in the data (the first
+ * business day of the month the client asked for), so `hours: 0` with the
+ * resume date as the anchor. */
+function dFlowPostponed_(t, s, h, v) {
+  var p = t.postponement;
+  if (!p || !p.pending || !isFinite(p.resumeDate)) return null;
+
+  var again = p.count > 1 ? ', they have asked to move month ' + p.count + ' times' : '';
+
+  return dRung_({
+    flow: 'postponement', rung: 'resume', owner: 'Gaby',
+    hours: 0, anchor: { ts: p.resumeDate },
+    title: 'Send the outreach to ' + v.Client + ', they asked to move to this month' + again + '.',
+    detail: 'They said yes but asked to start this month. Everything for them has been paused ' +
+            'since then. Marking the outreach sent restarts the normal ladder from today, with ' +
+            'the reply check and the follow-ups on their usual clocks.'
+  });
+}
+
 var D_FLOWS = [dFlowOutreach_, dFlowVideo_, dFlowCoachForm_, dFlowManualPulls_,
                dFlowContent_, dFlowApproval_, dFlowRaffleMonth_, dFlowRaffleMessages_];
 
@@ -935,8 +1027,15 @@ function dEvaluate_(t, s, roster) {
     coach: r.coach || 'the coach',
     month: t.raffleMonth
   };
+  /* ONE GATE, ABOVE THE LADDERS (D-120). Mirror of flows.js `evaluate`. A
+   * postponed client is out of play until the outreach is sent again: no
+   * outreach, no follow-ups, no video check, no coach form, no Everfit and
+   * photos. Asked once here so the next flow anyone adds is covered without
+   * having to remember it. */
+  var flows = (t.postponement && t.postponement.pending) ? [dFlowPostponed_] : D_FLOWS;
+
   var out = [];
-  D_FLOWS.forEach(function (fn) {
+  flows.forEach(function (fn) {
     var task = fn(t, s, h, v);
     if (!task) return;
     task.clientKey = t.key;
@@ -952,6 +1051,10 @@ function dReviewTasks_(list, roster) {
   var out = [];
   list.forEach(function (t) {
     if (t.terminal) return;
+    // Mirror of alerts.js: these items are not walked through dEvaluate_, so
+    // the gate has to be repeated here. A postponed client produces ZERO tasks
+    // (D-120), and a stale flag is still a task in Gaby's queue.
+    if (t.postponement && t.postponement.pending) return;
     var r = roster.byEmail[t.email] || {};
     var name = r.name || t.email;
 
@@ -1389,6 +1492,144 @@ function dSelfCheckRaffle_() {
   return problems;
 }
 
+/**
+ * Structural assertions on the postponement (D-120). Synthetic, so they hold
+ * whatever the live log happens to contain today — the invariants are about the
+ * rules, not about the four clients who exist this month.
+ *
+ * The dates are built RELATIVE to now: a month far ahead is still waiting, a
+ * month already past has resumed. That is how "before" and "after" the resume
+ * date are exercised without a simulated clock, which the digest does not have
+ * (there is no URL to put `?sim=` on when a trigger fires it).
+ */
+function dSelfCheckPostponement_() {
+  var problems = [];
+  var settings = { outreachReplyCheckHours: 24, outreachFollowup1Hours: 24,
+                   outreachFollowup2Hours: 48, outreachCoachToldHours: 48,
+                   outreachCoachNotMessagedHours: 24, videoCheckHours: 48,
+                   videoSnoozeDays: 2, coachFormFollowupHours: 24, coachFormEscalateHours: 24,
+                   collectingStaleHours: 120, contentCheckinDays: 5, contentEscalateDays: 7,
+                   approvalEscalateHours: 48 };
+  var roster = { byEmail: { 'p@x': { name: 'Pat Postponed', coach: 'Brent' } } };
+  var DAY = 24 * 36e5;
+
+  /* A client mid-outreach with every clock long expired — without the
+   * postponement this shape produces a follow-up task, which is the point. */
+  function fake(monthKey, postAgeDays) {
+    var t0 = Date.now() - 40 * DAY;
+    var last = {}, repeats = {};
+    function put(stage, ts, event) {
+      last[dNorm_(stage)] = { stage: stage, ts: ts, event: event || '', row: 1, email: 'p@x', cycle: 1 };
+      repeats[dNorm_(stage)] = (repeats[dNorm_(stage)] || 0) + 1;
+    }
+    put(D_S.NOMINATION_LOGGED, t0);
+    put(D_S.OUTREACH_SENT, t0 + DAY);
+    if (monthKey) put(D_S.POSTPONED, Date.now() - postAgeDays * DAY, 'Postponed to ' + monthKey);
+
+    var inputs = {};
+    ['video', 'everfit', 'photos', 'coachForm', 'meet', 'loom'].forEach(function (k) {
+      inputs[k] = { state: 'missing', at: NaN, event: null, text: '' };
+    });
+    var month = monthKey || '2026-08';
+    return {
+      email: 'p@x', cycle: 1, key: 'p@x::1', stage: 'outreach', at: t0 + DAY,
+      terminal: false, inputs: inputs, arrived: function (s) { return s === 'received' || s === 'partial'; },
+      pieces: {}, piecesDone: 0, allPiecesDone: false, complete: false, collectionComplete: false,
+      approved: false, lastByStage: last, repeats: repeats, collectingEntry: null,
+      raffle: { qualifies: false }, raffleMonth: month, raffleMoved: !!monthKey,
+      raffleWon: null, raffleMonthAdded: false, raffleMessagesSent: false, raffleEntryTs: t0,
+      schedPost: false, schedEmail: false, flags: [],
+      postponement: dPostponement_(function (s) { return last[dNorm_(s)] || null; },
+                                   repeats, month, Date.now())
+    };
+  }
+
+  /* 1 · a pending postponement whose month has NOT arrived → zero tasks. */
+  var futureMonth = dMonthKey_(Date.now() + 400 * DAY);
+  var waiting = fake(futureMonth, 1);
+  if (!waiting.postponement.pending) {
+    problems.push('a postponement with no later outreach must be pending (D-120)');
+  }
+  if (!waiting.postponement.waiting) {
+    problems.push('a postponement to ' + futureMonth + ' must still be waiting');
+  }
+  var nWaiting = dEvaluate_(waiting, settings, roster).length +
+                 dReviewTasks_([waiting], roster).length;
+  if (nWaiting !== 0) {
+    problems.push('a postponed client must generate EXACTLY 0 tasks before the resume date, got ' + nWaiting);
+  }
+
+  /* 2 · the same client, once the resume date has passed → exactly one, Gaby's. */
+  var pastMonth = dMonthKey_(Date.now() - 40 * DAY);
+  var resumed = fake(pastMonth, 35);
+  var rTasks = dEvaluate_(resumed, settings, roster).concat(dReviewTasks_([resumed], roster));
+  if (rTasks.length !== 1) {
+    problems.push('on and after the resume date a postponed client must generate EXACTLY 1 task, got ' +
+                  rTasks.length + ' [' + rTasks.map(function (x) { return x.flow + '/' + x.rung; }).join(', ') + ']');
+  } else {
+    if (rTasks[0].owner !== 'Gaby') problems.push('the resume task belongs to Gaby, got ' + rTasks[0].owner);
+    if (rTasks[0].flow !== 'postponement' || rTasks[0].rung !== 'resume') {
+      problems.push('the resume task must be postponement/resume, got ' + rTasks[0].flow + '/' + rTasks[0].rung);
+    }
+  }
+
+  /* 3 · the same shape with NO postponement must produce work — otherwise the
+   *     two assertions above would pass on a client who was simply idle. */
+  var control = fake(null, 0);
+  if (control.postponement.pending) problems.push('a client with no postponement event must not be pending');
+  if (!dEvaluate_(control, settings, roster).length) {
+    problems.push('the control client must generate tasks, or the "zero tasks" assertions prove nothing');
+  }
+
+  /* 4 · the outreach ENDS it — the date never does. A postponement to a month
+   *     already past, with a newer outreach, is finished; without one it is not. */
+  var reOut = fake(pastMonth, 35);
+  reOut.lastByStage[dNorm_(D_S.OUTREACH_SENT)] = { stage: D_S.OUTREACH_SENT, ts: Date.now() - 1 * DAY, row: 9 };
+  reOut.postponement = dPostponement_(function (s) { return reOut.lastByStage[dNorm_(s)] || null; },
+                                      reOut.repeats, pastMonth, Date.now());
+  if (reOut.postponement.pending) {
+    problems.push('an outreach written AFTER the postponement must end it (D-120)');
+  }
+
+  /* 5 · cancelling ends it too, and returns the month in the same write. */
+  var cancelled = fake(futureMonth, 2);
+  cancelled.lastByStage[dNorm_(D_S.POSTPONE_CANCELLED)] =
+    { stage: D_S.POSTPONE_CANCELLED, ts: Date.now(), row: 9, event: 'back to 2026-08' };
+  cancelled.postponement = dPostponement_(function (s) { return cancelled.lastByStage[dNorm_(s)] || null; },
+                                          cancelled.repeats, '2026-08', Date.now());
+  if (cancelled.postponement.pending) problems.push('a cancellation newer than the postponement must end it');
+
+  /* 6 · THE MONTH IS ONE FUNCTION, reading three strings. A postponement moves
+   *     the cohort with no second `Raffle — month moved` row anywhere. */
+  var byPostpone = dMonthOf_([{ stage: D_S.POSTPONED, ts: 1,
+    event: 'Postponed to 2026-09 at the client\'s request (from 2026-08).' }], 0);
+  if (byPostpone.month !== '2026-09') {
+    problems.push('"Pipeline — postponed to month" must move the raffle month (D-120), got ' + byPostpone.month);
+  }
+  var byCancel = dMonthOf_([
+    { stage: D_S.POSTPONED, ts: 1, event: 'Postponed to 2026-09 (from 2026-08).' },
+    { stage: D_S.POSTPONE_CANCELLED, ts: 2, event: 'Postponement cancelled, back to 2026-08 (was 2026-09).' }
+  ], 0);
+  if (byCancel.month !== '2026-08') {
+    problems.push('the cancellation must return the raffle month, got ' + byCancel.month);
+  }
+
+  /* 7 · the resume date is the first Monday-to-Friday of the month. */
+  // 2026-08-01 is a Saturday, so August resumes on Monday the 3rd.
+  var aug = dFirstBusinessDay_('2026-08');
+  var augDay = new Date(aug + TZ_OFFSET_MIN * 60000);
+  if (augDay.getUTCDate() !== 3) {
+    problems.push('Aug 2026 starts on a Saturday, so the resume date is the 3rd, got ' + augDay.getUTCDate());
+  }
+  // 2026-09-01 is a Tuesday — a weekday, so it is the 1st itself.
+  var sep = new Date(dFirstBusinessDay_('2026-09') + TZ_OFFSET_MIN * 60000);
+  if (sep.getUTCDate() !== 1) {
+    problems.push('Sep 2026 starts on a Tuesday, so the resume date is the 1st, got ' + sep.getUTCDate());
+  }
+
+  return problems;
+}
+
 function selfCheck() {
   var st = dReadSettings_();
   var list = dFold_(), byStage = {};
@@ -1399,13 +1640,35 @@ function selfCheck() {
   var tasks = r.tasks;
   function n(pred) { return tasks.filter(pred).length; }
 
-  var problems = dSelfCheckRaffle_().concat(dSelfCheckSend_()).concat(r.problems);
+  var problems = dSelfCheckRaffle_().concat(dSelfCheckPostponement_())
+                   .concat(dSelfCheckSend_()).concat(r.problems);
 
   // Every owner must be a dashboard user. After dTasks_ reroutes, this can only
   // fail if the reroute itself broke — which is exactly when it matters.
   tasks.forEach(function (t) {
     if (D_PEOPLE.indexOf(t.owner) < 0) {
       problems.push('owner "' + t.owner + '" is not a dashboard user (D-094)');
+    }
+  });
+
+  /* Postponement, against the LIVE log (D-120). Two things worth asserting on
+   * real data rather than only synthetically: a postponed client's cohort must
+   * be the month they were postponed TO — which is what keeps them out of the
+   * old month's draw — and a waiting client must own no tasks at all. */
+  var postponed = list.filter(function (t) { return t.postponement && t.postponement.pending; });
+  postponed.forEach(function (t) {
+    if (t.postponement.month !== t.raffleMonth) {
+      problems.push('postponed client ' + t.key + ' has cohort ' + t.raffleMonth +
+                    ' but a postponement to ' + t.postponement.month +
+                    ' — the month must come from ONE function (D-120)');
+    }
+    if (t.postponement.waiting) {
+      var mine = tasks.filter(function (x) { return x.clientKey === t.key; });
+      if (mine.length) {
+        problems.push('postponed client ' + t.key + ' still owns ' + mine.length +
+                      ' task(s) before the resume date: ' +
+                      mine.map(function (x) { return x.flow + '/' + x.rung; }).join(', '));
+      }
     }
   });
 
@@ -1430,6 +1693,14 @@ function selfCheck() {
              'draw state: ' + raf.drawState,
              'winner: ' + (raf.winner ? raf.winner.email + ' (cycle ' + raf.winner.cycle + ')' : 'none'),
              'raffle tasks: ' + n(function (t) { return /raffle/i.test(t.title); }),
+             '',
+             '--- postponement (D-120) ---',
+             'postponed: ' + postponed.length +
+               (postponed.length ? ' (' + postponed.map(function (t) {
+                 return t.key + ' → ' + t.postponement.month +
+                        (t.postponement.waiting ? ', waiting' : ', resumed');
+               }).join('; ') + ')' : ''),
+             'resume tasks: ' + n(function (t) { return t.flow === 'postponement'; }),
              '',
              'invariants: ' + (problems.length ? 'FAILED' : 'ok'),
              problems.length ? '  - ' + problems.join('\n  - ') : '',

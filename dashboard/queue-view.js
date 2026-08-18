@@ -190,6 +190,28 @@
 
       function say(m, c) { root.Dialog.feedback(btn, m, c); }
 
+      /* Most task buttons are one click, one write. A few need to ask something
+       * first — the postponement has to know which month. `dialog` names the
+       * question; the dialog itself lives with the client card, so the card and
+       * the queue can never describe the same consequences differently. */
+      if (action.dialog === "postpone") {
+        var subject = ctx.state && ctx.state.byKey[t.clientKey];
+        if (!subject) { say("Could not find this client.", "bad"); return; }
+        root.ClientCard.askPostpone(subject).then(function (ev) {
+          if (!ev) { say("Cancelled — nothing was written.", ""); return; }
+          btn.disabled = true;
+          say("Writing…", "");
+          root.EventWriter.appendEvent({ email: t.email, stage: ev.stage, event: ev.event, cycle: t.cycle })
+            .then(function (res) {
+              say(res.message, res.verified ? "ok" : "warn");
+              btn.disabled = false;
+              if (res.verified && root.TDApp) root.TDApp.reload();
+            })
+            .catch(function (err) { say(err.message, "bad"); btn.disabled = false; });
+        });
+        return;
+      }
+
       var text = action.event || "";
       if (action.needsNote) {
         var field = host.querySelector('.tasknote[data-note="' + CSS.escape(t.id) + '"]');

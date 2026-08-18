@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-17**
+**Last updated: 2026-08-18**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -205,6 +205,17 @@ The gate lives at the point of action (`ClientCard.collectionLock`), not in the 
 
 Five pieces: carousel, story, reel, case study + landing page, weekly email. A `Production — …` event means done; its `Event` text carries the link and comment. When all five exist, `readyForReview` is true and the approval controls open on the card.
 
+### 4.8 `postponement` — computed once, read everywhere (D-120)
+
+The fold exposes `t.postponement = { pending, month, resumeDate, waiting, count }`. It is **not a stage**: a postponed client keeps the stage they were in, because they said yes and nothing about their position changed.
+
+- **`pending`** — the newest `Pipeline — postponed to month` has no cancellation after it and **no `Outreach — sent` after it**. It is never switched off by the calendar; see §10.4c for what that would break.
+- **`month`** — whatever `RaffleFold.monthOf` resolves, *never* the event's own payload. So if the month is later moved from the raffle view, the return month moves with it, by construction rather than by keeping two values in step.
+- **`resumeDate`** — the first business day of that month, in the sheet's timezone.
+- **`waiting`** — pending and the resume date has not arrived. This is what dims the card and stops the age counter.
+
+`hoursInStage` is overridden in the same pass: `NaN` while waiting, and counted from `resumeDate` afterwards. Every consumer (board sort, card age, digest) reads that one field, so none of them has to know about postponements.
+
 ---
 
 ## 5. Stage vocabulary
@@ -225,7 +236,7 @@ Pattern: `<Group> — <specific>`, em dash (U+2014), one space each side. Approv
 | Approval | `approved` · `sent back` |
 | Schedule | `week assigned` · `post scheduled` · `email scheduled` · `repost used` |
 | Publish | `live` |
-| Pipeline | `declined` · `dropped` |
+| Pipeline | `declined` · `dropped` · `postponed to month` · `postponement cancelled` |
 | — | `Note` |
 | Raffle | `winner confirmed` · `messages sent` · `month added` |
 | Review | `self-reported` · `confirmed` · `unmatched` · `verification done` |
@@ -238,7 +249,11 @@ Pattern: `<Group> — <specific>`, em dash (U+2014), one space each side. Approv
 
 There is **no** dashboard `coach form` string: the engine's `Collection — coach form` is authoritative and is read directly. A missed one is corrected with `Collection — manual review resolved`.
 
-**41 dashboard strings.** Both the frontend (`config.js`) and Apps Script (`Code.gs`) hold the list and reject anything outside it, plus all nine engine strings. The two lists are kept in lockstep.
+**The two `Pipeline — postpone…` strings are NOT terminal** (D-120). `declined` and `dropped` close a testimonial; these two pause one. A postponed client said *yes* — they are still on the board, in the same column, and they come back on their own.
+
+**Both carry a month as `YYYY-MM`, and the target month comes FIRST in the event text**, because `RaffleFold.monthOf()` parses the first one it finds. `postponed to month` carries the month the client asked for; `postponement cancelled` carries the month they return to, so one write both ends the pause and restores the raffle entry.
+
+**43 dashboard strings.** Both the frontend (`config.js`) and Apps Script (`Code.gs`) hold the list and reject anything outside it, plus all nine engine strings. The two lists are kept in lockstep.
 
 A re-nomination needs no new string — it is `Nomination — logged` with cycle 2.
 
@@ -256,6 +271,8 @@ Guarantees, enforced on **both** sides:
 4. **Read the response, then verify.** The POST is a normal readable fetch — Apps Script *does* return `access-control-allow-origin: *` on its redirect target, verified live. `Content-Type` stays `text/plain` so it remains a CORS "simple request": Apps Script does not answer OPTIONS, so anything that triggers a preflight fails.
 
 This replaced `mode:"no-cors"`, inherited from Coach Pulse, which made every reply opaque. A real server error like `{"ok":false,"message":"Unknown action: requestFanout"}` was invisible and had to be *inferred* seconds later from a row that never appeared — which is exactly how the fan-out bridge failed on 2026-08-08 with no visible error at all. The server's own message is now reported first; re-reading the log stays as the second check. If the readable fetch ever fails at the network/CORS layer it falls back to an opaque send, so a write is never lost.
+
+**`PROXY_VERSION` is 7** — the two postponement strings (D-120) were added to `ALLOWED_STAGES`. Redeployed by editing the existing deployment `…qll5X-MnC3gZ` → **New version** (D-092), never "New deployment". Until that redeploy runs, both postponement buttons fail in production: the strings exist in the repo and not in the vocabulary the live Web App actually enforces.
 
 **Proxy version handshake.** `Code.gs` exposes `PROXY_VERSION`; `config.js` holds `EXPECTED_PROXY_VERSION`. The dashboard pings on load and shows a red banner naming the redeploy steps when they differ. A Web App serves its **deployed** version, so editing `Code.gs` without redeploying silently keeps the old code running — that mismatch has now cost time twice (the coach form trigger, then this). Bump `PROXY_VERSION` whenever an action is added or changed.
 
@@ -429,6 +446,7 @@ Three invariants, asserted rather than assumed:
 | **5 Everfit + photos** | entry into **Collecting** | only exists once collection has started; passive reminder to **Gaby**, one soft escalation at `collectingStaleHours`, never leaves her |
 | **6 Content** | `Collection — complete` | +5d **Miguel** soft check-in → +7d **Gaby**. **Per client, never per piece.** |
 | **7 Approval** | all five pieces done | **Joey** → +48h **Gaby** tells Bernardo → **Bernardo** nudges Joey |
+| **Postponed** | the resume date | the ONLY rung a postponed client can produce — see §10.4c |
 
 **Why Flow 3 anchors on the instructions email.** The fan-out shares the folder; the *instructions email* is the client being told what to do. Starting the 48h clock at the fan-out would chase a client who has not been asked yet.
 
@@ -446,6 +464,80 @@ Pressing **Checked, not there** writes the event and moves A → B; the task **d
 **Why Flow 5 waits for Collecting.** It had no precondition at all, so it fired for any testimonial that merely existed — it went out for four freshly nominated clients, one of whom had not even accepted, and its `blocking: true` then leaked those clients into the buffer indicator. It now reads `collectingEntry` from the fold (one source, not re-derived), and the staleness clock counts from **entry into Collecting** — when the task could first exist — rather than from a video or folder event that says nothing about whether Gaby has done her pulls.
 
 **Why Flow 6 is per client.** The five-piece checklist on the card is the detail view and is unchanged. The alert watches the whole package, so Miguel gets one question rather than five clocks. Both rungs measure from day 0, so acknowledging the 5d check-in clears Miguel's rung but does not postpone Gaby's 7d escalation — the escalation is about the work, not the reply. There is deliberately **no landing-page threshold**: landing-page-first is an agreement between Bernardo and Miguel, not a dashboard rule.
+
+### 10.4c "Yes, but next month" — the postponement (D-120)
+
+A client who replies *yes, but start me next month* had no honest button. The reply-check offered two: **"Yes, they're in"** starts the whole collection and chases them for a month, **"No reply"** sends two follow-ups to somebody who did reply. Both are lies, and the first real case (Allen Donald, August 2026) sat untouched in the queue accruing fake delay because pressing either would have caused real damage.
+
+There is now a third: **"Yes, but next month"**, which opens a month picker and writes one event.
+
+**Where it lives.** Two places, and only in **Outreach, Invited and Collecting** — past Collecting the material is already in the house and there is nothing left to pause:
+
+1. the reply-check task in the queue, as a third button beside the other two;
+2. the client card, for the whole of the collection — which covers the other known case, a client who accepts, goes quiet, and asks halfway through to move to next month.
+
+**One event, three effects.** `Pipeline — postponed to month`, carrying the target as `YYYY-MM`:
+
+| Effect | How |
+|---|---|
+| every task stops | one gate in `Flows.evaluate` (below) |
+| the raffle entry moves | `RaffleFold.monthOf` reads this event as one of its three month sources |
+| Gaby is reminded | the resume rung fires on the first business day of that month |
+
+#### The month is ONE function reading three strings
+
+`monthOf` used to read only `Raffle — month moved` (D-100). It now reads that **plus** the two postponement events, newest-wins, exactly as before. The postponement deliberately does **not** also write a `Raffle — month moved` row: a second row saying the same thing is a second thing that can drift, and one of the two could later be superseded alone. After D-120 a testimonial's month has exactly one answer, computed in one place.
+
+**A consequence worth stating, because it needed no code:** the raffle gate (D-119) walks *this month's cohort*, so a postponed client leaves August's group by construction. No new condition was added to the gate, and none should be — inside a month's group the "moved" mark means moved **into** it, and those people still have to resolve.
+
+#### The gate: one question, above the ladders
+
+```js
+var flows = (t.postponement && t.postponement.pending) ? [flowPostponed] : FLOWS;
+```
+
+Asked **once**, in `Flows.evaluate`, rather than as a precondition inside each flow. The failure mode of per-flow conditions is the next flow somebody writes, which quietly ignores them. While pending: no outreach, no follow-ups, no video check, no coach form, no Everfit and photos, nothing.
+
+`alerts.js reviewTasks` repeats the gate, because manual-review flags are not walked through `evaluate` and a stale flag is still a task in Gaby's queue.
+
+#### Pending ends with the outreach, NEVER with the date
+
+`postponement.pending` is true while the newest `postponed to month` has no `postponement cancelled` and **no `Outreach — sent` after it**.
+
+> ⚠️ If pending expired on the resume date instead, then on 1 September the old August ladder would re-arm and the client would be handed a follow-up thirty days overdue, anchored on an outreach from the month they explicitly asked to skip. **The date does exactly one thing: it lets Gaby's task appear.**
+
+#### The resume rung
+
+| | |
+|---|---|
+| Owner | **Gaby** |
+| Condition | `pending` **and** today ≥ `resumeDate` |
+| Title | *"Send the outreach to [Client], they asked to move to this month."* — plus *", they have asked to move month N times"* when N > 1 |
+| Copy | **`outreachInitial`**, the same approved D-109 text the `start` and `retry` rungs hand over. No new copy was written |
+| Closes with | **"Outreach sent"** → `Outreach — sent`, which ends the postponement and restarts the normal ladder from *today* |
+
+**No new Settings key, deliberately.** Every other rung waits a threshold measured from an event; this one waits for a date already in the data. A duration setting here would be a second, softer answer to a question the client already answered. `hours: 0` with the resume date as the anchor, so it appears that morning and not before, and escalates the way every zero-threshold rung does — `waitedHours` climbs, so an untouched one rises in the queue.
+
+**`resumeDate` = the first Monday-to-Friday of the month**, at midnight in the sheet's timezone, compared as a date. Holidays are **not** modelled: a holiday costs the task one day, and a holiday table is a second thing to maintain that goes stale in silence. This is the one piece of new *timing* written in code rather than Settings, and it is a calendar rule, not a threshold — there is no setting that could make "the first business day" mean something else.
+
+#### On the board
+
+The client does **not** change column and no new column exists. While pending and before the resume date:
+
+- the card is **dimmed** and sinks to the bottom of its column, with a **"waiting for Sep 2026"** chip built from the data;
+- the **age counter stops** — a number climbing on someone who asked to be left until next month reads as neglect, and they are not late. It shows `paused · resumes Sep 1`;
+- the column header **separates them**: `Outreach 1 · 1 waiting for Sep 2026`;
+- they are out of the buffer and out of the production blockers, for the same reason the Everfit task stopped firing before the kickoff (D-117): somebody who is not in play this month cannot be allowed to colour the number that says what is holding publication up.
+
+From the resume date they rejoin the normal counts, and their age runs from **`resumeDate`** — not from the August event, which would resurface as a month of invented delay the morning the task appears.
+
+#### Cancelling
+
+A **"Cancel the postponement"** link on the client card, visible only while pending. It writes `Pipeline — postponement cancelled` carrying the month they return to, so a single write both ends the pause and restores the raffle entry.
+
+It exists because this button silences a client for a whole month and switches off every task that would otherwise tell you so. Without an undo, one misclick removes somebody from the work with nothing left to raise a flag.
+
+There is **no cap** on postponements, and the dialog shows the history (*"already been postponed once, from Aug 2026"*) as information rather than a block.
 
 ### Copy provenance
 
@@ -688,7 +780,11 @@ Still required before it can run: the `SLACK_BOT_TOKEN` script property in the *
 
 ### ⚠️ It duplicates the fold — the main maintenance risk in this repo
 
-A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, **the full v2 task ladders**, and the raffle. **That is a genuine second source of truth.** Change any of those and both must change.
+A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, **the full v2 task ladders**, the raffle, and **the postponement** — `dMonthOf_`'s three month sources, `dPostponement_`, `dFirstBusinessDay_`, the gate in `dEvaluate_` and `dReviewTasks_`, and `dFlowPostponed_`. **That is a genuine second source of truth.** Change any of those and both must change.
+
+`dSelfCheckPostponement_()` asserts the D-120 invariants structurally, on synthetic data built relative to *now* — a month far ahead is still waiting, a month already past has resumed — because the digest has no simulated clock (there is no URL to put `?sim=` on when a trigger fires it). It proves: a pending client generates exactly **zero** tasks before the resume date and exactly **one** after; a control client of the same shape *does* generate work, so the zero is not vacuous; the outreach ends the pause and the date does not; and both postponement events move the month.
+
+`selfCheck()` also asserts it against the **live** log: a postponed client's cohort must equal the month they were postponed to, and a waiting client must own no tasks at all.
 
 ### How drift is caught: the task fingerprint
 
@@ -720,6 +816,7 @@ Three distinct mechanisms. Confusing them is how a system either nags people int
 | approved → Scheduled | flows |
 | Scheduled → **Published** | 🔴 **confirm** |
 | any → **Declined / Dropped** | 🔴 **confirm** + required note |
+| Outreach / Invited / Collecting → **postponed** | 🔴 **confirm** + month picker (§10.4c) — reversible, uniquely, by cancelling |
 
 **Hard block ≠ confirmation.** A hard block is a disabled control that names what is missing — you cannot proceed. A confirmation is a move you *can* make, shown with its consequences first.
 

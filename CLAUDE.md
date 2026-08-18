@@ -57,6 +57,9 @@ Collecting gate, or the alert rules MUST be made in both places:**
 | the `activeMonth` setting (Sheets date coercion) | `dashboard/sheets-reader.js` `monthSetting` | `apps-script/Digest.gs` `dMonthSetting_` |
 | raffle: eligibility + draw-due state | `dashboard/raffle.js` `eligibleFrom` / `build` | `apps-script/Digest.gs` `dEligibleFrom_` / `dRaffle_` |
 | raffle: the two parallel post-draw tasks | `dashboard/flows.js` + `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |
+| postponement: the derived state | `dashboard/state-builder.js` `postponementOf` | `apps-script/Digest.gs` `dPostponement_` |
+| postponement: the gate + the resume rung | `dashboard/flows.js` `evaluate` / `flowPostponed` + `alerts.js` | `apps-script/Digest.gs` `dEvaluate_` / `dFlowPostponed_` / `dReviewTasks_` |
+| the month's three sources, first business day | `dashboard/raffle.js` `moveTargets` / `firstBusinessDay` | `apps-script/Digest.gs` `dMonthOf_` / `dFirstBusinessDay_` |
 | Stage vocabulary | `dashboard/config.js` | `apps-script/Code.gs` `ALLOWED_STAGES` |
 
 `Digest.gs` `selfCheck()` prints its stage counts, task total, the raffle counts
