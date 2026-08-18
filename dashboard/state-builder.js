@@ -230,19 +230,29 @@
     var allPiecesDone = piecesDone === CFG.PIECES.length;
 
     /* --- Pipeline stage (computed) --- */
-    // ONLY the five fan-out strings imply Invited. The engine's two form
+    // ONLY the five fan-out strings imply Collecting. The engine's two form
     // events fire later in the process; letting them in here would jump a
     // testimonial forward on evidence that says nothing about the kickoff.
     var fanoutEv = newestOf(CFG.ENGINE_FANOUT);
     var kickoffEv = last(S.INVITE_KICKOFF);
 
-    var videoArrived = arrived(inputs.video.state) ? inputs.video.event : null;
+    // THE LADDER MOVED UP ONE RUNG. Until this change, Invited meant "the
+    // kickoff fired" and Collecting meant "the client's video arrived" — so a
+    // client with the coach form, the Meet notes and the Looms already in sat
+    // in a column labelled Invited. The label was lying: they were collecting.
+    //
+    // Now Invited is the client SAYING YES (nothing has been sent yet, the ball
+    // is ours), and Collecting starts when the kickoff fires — which is exactly
+    // when inputs can begin to arrive. The client video stops being a stage
+    // gate; it goes back to being one of the six inputs and nothing more.
+    var acceptedEv = last(S.OUTREACH_ACCEPTED);
+    var collectingEv = kickoffEv || fanoutEv;
 
     var ladder = [
       { key: "nominated",  label: "Nominated",  ev: last(S.NOMINATION_LOGGED) },
       { key: "outreach",   label: "Outreach",   ev: last(S.OUTREACH_SENT) },
-      { key: "invited",    label: "Invited",    ev: kickoffEv || fanoutEv, inferred: !kickoffEv && !!fanoutEv },
-      { key: "collecting", label: "Collecting", ev: videoArrived },
+      { key: "invited",    label: "Invited",    ev: acceptedEv },
+      { key: "collecting", label: "Collecting", ev: collectingEv, inferred: !kickoffEv && !!fanoutEv },
       { key: "producing",  label: "Producing",  ev: last(S.COLLECTION_COMPLETE) },
       { key: "review",     label: "Review",     ev: allPiecesDone ? { ts: lastPieceTs } : null },
       { key: "scheduled",  label: "Scheduled",  ev: last(S.SCHEDULE_WEEK_ASSIGNED) },
@@ -293,6 +303,11 @@
       videoLink:  "",                       // filled from the Signal tab in build()
       stage:      stage,
       hoursInStage: isFinite(stage.at) ? (root.TDClock.now() - stage.at) / 36e5 : NaN,
+      // The event that put this testimonial INTO Collecting — the kickoff, or
+      // the fan-out when no kickoff row exists. Exposed here rather than
+      // re-derived inside a flow so "has collection started?" has exactly one
+      // answer: flows.js reads this, it does not recompute it.
+      collectingEntry: collectingEv,
       inputs:     inputs,
       inputsArrived: CFG.INPUTS.filter(function (i2) { return arrived(inputs[i2.key].state); }).length,
       folderEvent: folderEv,

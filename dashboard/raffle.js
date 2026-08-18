@@ -60,7 +60,8 @@
  *     fold already computes, sourced from `CFG.INPUTS` so there is one
  *     definition. Note what it is NOT: `Collection — client video link` is the
  *     fan-out sharing folder 03 — the single most common Collection string in
- *     the log — and reading it would qualify every invited client instantly.
+ *     the log — and reading it would qualify every client the fan-out has run
+ *     for, instantly.
  *
  * ---------------------------------------------------------------------------
  * PARSING THE CLIENT'S ANSWER
@@ -395,6 +396,12 @@
         entryAt: entryTs(t),
         compliance: comp,
         qualifies: comp.qualifies,
+        // Stage is carried so the draw can say WHO it is waiting on and where
+        // they are stuck, without the view reaching back into the testimonial.
+        terminal: !!(t.stage && t.stage.terminal),
+        stageKey: (t.stage && t.stage.key) || "",
+        stageLabel: (t.stage && t.stage.label) || "",
+        hoursInStage: t.hoursInStage,
         alreadyWon: !!(t.recognitions && t.recognitions.raffleWinner),
         // The person has won at some point — possibly on another cycle.
         personWon: !!wonBy[t.email],
@@ -440,9 +447,40 @@
     // exactly the kind of thing that must be visible rather than averaged over.
     var doubleWinner = winners.length > 1 ? winners : null;
 
-    var drawState = winner ? "done"
-                  : (eligible.length ? (monthIsPast(month) ? "overdue" : "due")
-                                     : "waiting");
+    /* WHO IS STILL HOLDING THE MONTH UP.
+     *
+     * A cohort member is RESOLVED when they qualify, or when they are closed
+     * (declined / dropped) — nothing more will happen for them either way.
+     * Anyone else is still in flight and the draw waits for them.
+     *
+     * "Moved to another month" is deliberately NOT tested here: moving someone
+     * removes them from this cohort entirely, so it resolves the hold-up by
+     * construction. Testing `e.moved` would be a bug — inside this list it
+     * means moved INTO this month, and those people still need resolving.
+     */
+    var unresolved = inMonth.filter(function (e) {
+      return !e.qualifies && !e.terminal;
+    });
+
+    /* Until now the draw opened the moment ONE person qualified. It went live
+     * on 17 August with a single eligible entry while three clients were still
+     * working — and confirming a winner freezes a permanent snapshot of who was
+     * eligible, so an early draw would have recorded a one-person raffle
+     * forever and written out people who had done nothing wrong.
+     *
+     * The end of the month is the backstop: once it has passed the draw opens
+     * regardless, so it can never hang waiting on someone who will never reply.
+     */
+    var drawState;
+    if (winner) {
+      drawState = "done";
+    } else if (!eligible.length) {
+      drawState = "waiting";
+    } else if (unresolved.length && !monthIsPast(month)) {
+      drawState = "waiting";
+    } else {
+      drawState = monthIsPast(month) ? "overdue" : "due";
+    }
 
     return {
       month: month,
@@ -464,6 +502,9 @@
       excludedPriorWin: inMonth.filter(function (e) { return e.qualifies && e.personWon && !e.alreadyWon; }),
       winner: winner,
       doubleWinner: doubleWinner,
+      // The people the draw is waiting on, so the view can name them and offer
+      // the buttons that resolve them. Empty once nobody is in flight.
+      holdingUp: unresolved,
       drawState: drawState,
       drawDue: drawState === "due" || drawState === "overdue",
       // Everyone, so the view can say what a different month would hold.
@@ -505,7 +546,8 @@
         }
         if (s === CFG.ENGINE.CLIENT_VIDEO_LINK) {
           problems.push("'" + CFG.ENGINE.CLIENT_VIDEO_LINK + "' means folder 03 was SHARED, not that the " +
-                        "video arrived — reading it would qualify every invited client (condition '" + c.key + "')");
+                        "video arrived — reading it would qualify every client the fan-out has run for " +
+                        "(condition '" + c.key + "')");
         }
       });
     });

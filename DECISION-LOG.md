@@ -13,6 +13,69 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-17 — La escalera se corre un lugar, y tres reglas que la producción real destapó
+
+Cuatro cambios decididos con Bernardo, en un solo commit, espejo del digest incluido (D-103/D-104). Los cuatro salieron de mirar el tablero con clientes de verdad, no de rediseñar en abstracto.
+
+### 1 · Invited pasa a ser "dijo que sí"; Collecting arranca en el kickoff
+
+Jennifer Dickey aparecía en la columna **Invited** con el formulario del coach, las notas de Meet y los Looms ya dentro — 3 de 6 entradas. La etiqueta mentía: estaba recolectando.
+
+    invited    = "Outreach — client accepted"
+    collecting = "Invite — kickoff sent" || los cinco strings del fan-out
+    producing  = "Collection — complete"   (sin cambios)
+
+**El video del cliente deja de ser una puerta de etapa.** Vuelve a ser una de las seis entradas y nada más. La compuerta Collecting → Producing (D-087) no se tocó.
+
+La escalera se recorre hacia adelante y gana el último rung con evento, no el más reciente por fecha. Verificado en vivo: Jennifer tiene kickoff el 12 y aceptación el 13, y cae en Collecting igual porque Collecting va después. Un cliente con kickoff y sin aceptación registrada también cae en Collecting, no se rompe.
+
+La pelota de `invited` pasó de "Client" a **"Gaby"**: el cliente ya respondió, lo que falta es que nosotros disparemos el kickoff.
+
+El fold ahora expone **`collectingEntry`** (el evento que metió al testimonio en Collecting), para que nadie tenga que re-derivar esa condición.
+
+### 2 · La tarea de Everfit y fotos no sale antes del kickoff
+
+`flowManualPulls` no tenía **ninguna** condición previa: se generaba para cualquier testimonio que existiera. Salió para cuatro clientes recién nominados, uno que ni había aceptado. Daño extra: su `blocking: true` contaminaba el indicador de buffer con esa gente.
+
+Ahora la tarea solo existe si hay `collectingEntry` — leído del fold, no recalculado. Y el ancla de antigüedad pasó a ser la entrada a Collecting, así el "lleva X días esperando" cuenta desde que la tarea realmente pudo existir, no desde un evento de video o de carpeta que no dice nada sobre si Gaby hizo sus descargas.
+
+### 3 · Revisar el video: dos estados, y un botón para aplazar
+
+El botón *"Checked, not there"* solo re-anclaba el reloj, así que la tarjeta **desaparecía** por un intervalo completo — y el paso de mandar el seguimiento vivía en esa misma tarjeta. Bernardo lo apretó y perdió de vista el seguimiento.
+
+    ESTADO A  "Check if [Client] uploaded their video."
+              sin mensaje · [Mark received] [Checked, not there] [Remind me in N days]
+    ESTADO B  "Nothing in folder 03 for [Client]. Send the follow-up."
+              con mensaje · [Mark received] [Follow-up sent] [Remind me in N days]
+
+Apretar *"Checked, not there"* escribe el evento y **la tarea no se va**: pasa a B. Solo *"Follow-up sent"* (o *"Mark received"*) la cierra. B es el estado cuando la revisión más reciente es posterior al seguimiento más reciente, o hay revisión y ningún seguimiento.
+
+**Una revisión ya no posterga nada.** Lo único que posterga es el aplazamiento explícito, y al vencer devuelve la tarea **al estado en que estaba**, no al principio.
+
+Arrastra: string nuevo `Collection — video check snoozed`, `PROXY_VERSION` 5 → **6**, y `videoSnoozeDays` (2) en los defaults de Settings de los tres lados. Ningún tiempo quedó en código.
+
+### 4 · El sorteo no se habilita a mitad del mes
+
+`drawState` pasaba a "due" en cuanto había **una** persona elegible. Se habilitó el 17 de agosto con una sola elegible mientras tres clientes seguían en proceso. El daño real no es el ruido: confirmar un ganador **congela una foto permanente** de quiénes eran elegibles, así que un sorteo temprano deja registrado para siempre un sorteo de una participante y excluye a gente que no hizo nada mal.
+
+Un miembro del grupo está **resuelto** si califica o si está cerrado (declined/dropped). Cualquier otro retiene el sorteo. El fin de mes es el seguro de fondo: pase lo que pase, el último día se habilita.
+
+**"Movido a otro mes" no se testea como criterio de resolución, a propósito.** Mover a alguien lo saca del grupo por completo, así que resuelve por construcción. Testear la bandera `moved` habría sido un bug: dentro de esa lista significa movido **hacia** este mes, y esa gente todavía necesita resolverse.
+
+`build()` devuelve **`holdingUp`**, y la vista del sorteo los nombra con su etapa, sus días y el botón de mover al lado. La espera tiene que ser accionable, no un muro. **Ninguna tarea se genera mientras espera** — la razón vive en la vista, no en la cola de nadie.
+
+### Verificación
+
+Los 23 escenarios de deriva dan huella **idéntica** entre `alerts.js` y `Digest.gs`, y las etapas también coinciden testimonio por testimonio. Los siete escenarios pedidos pasan, incluidos los dos de reloj simulado. En vivo: Jennifer dice **Collecting** y sigue marcando **3 de 6** entradas; agosto está en `waiting` con `holdingUp` nombrando a Allen, Christine y Jennifer; visto desde el 1 de septiembre pasa a `overdue`.
+
+`checkTemplates()` en verde, doce plantillas con su procedencia intacta, ninguna comilla ni puntuación tocada. `RaffleFold.selfCheck()`, `dSelfCheckRaffle_()` y `dSelfCheckSend_()` todos vacíos.
+
+### Pendiente de decidir (no tocado)
+
+`pipeline-board.js` dibuja los seis puntos de entradas para `collecting` **y** `invited`. Con la escalera nueva, un cliente en Invited todavía no puede tener ninguna entrada, así que esa tarjeta muestra "0/6 inputs" — cierto, pero ruido. Se dejó como estaba porque no se pidió cambiarlo; conviene decidir si esa fila debería quedar solo para Collecting.
+
+---
+
 ## 2026-08-11 — Los dos mensajes de la rifa quedan cargados (D-106)
 
 El texto aprobado del **mensaje al ganador** y del **mensaje a los no-ganadores** (Everfit, Bernardo → cliente) ya está en el dashboard. Los dos textos se aprobaron en el repo de gobernanza como **D-106**; la gobernanza de la carga se sigue allá, esta entrada solo registra el cableado.

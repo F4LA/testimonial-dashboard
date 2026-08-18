@@ -623,6 +623,17 @@ a.wk__name:hover { color: var(--accent); }
 
 .rowbtns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 
+/* Who the draw is waiting on — a list you can act on, not a wall. */
+.holds { list-style: none; margin: 12px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hold {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn);
+  border-radius: 9px; background: var(--panel);
+}
+.hold__name { font-weight: 640; font-size: 14px; text-decoration: none; color: inherit; }
+.hold__name:hover { text-decoration: underline; }
+.hold__act { flex: none; }
+
 @media (max-width: 720px) {
   .rf { grid-template-columns: 1fr; gap: 8px; }
   .rf__state { align-items: flex-start; }

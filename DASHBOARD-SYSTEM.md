@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-11**
+**Last updated: 2026-08-17**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -134,21 +134,25 @@ Highest rung reached, terminal overriding everything:
 |---|---|
 | Nominated | `Nomination — logged` |
 | Outreach | `Outreach — sent` |
-| Invited | `Invite — kickoff sent` **or any of the five fan-out strings** (see below) |
-| Collecting | the client video **arrived** — see below |
+| Invited | `Outreach — client accepted` |
+| Collecting | `Invite — kickoff sent` **or any of the five fan-out strings** (see below) |
 | Producing | `Collection — complete` |
 | Review | all five `Production — …` present |
 | Scheduled | `Schedule — week assigned` |
 | Published | `Publish — live` |
 | Declined / Dropped | `Pipeline — declined` / `Pipeline — dropped` |
 
-**The Invited inference — five strings only.** The confirmation-checkbox fan-out writes exactly five Stage strings, and it fires during Invited, so any one of them proves Invited was reached even though no front-of-pipeline event exists. The engine's other four strings must **never** enter this inference: `Collection — coach form` and `Collection — client video` fire later in the process, and `Confirmation` / `Nomination` are system rows with no client at all. `CFG.ENGINE_FANOUT` is that list, kept separate from `CFG.ENGINE`. Inferred stages are labelled `inferred` in the UI so the inference is never invisible.
+**⚠️ The ladder moved up one rung.** Until this change Invited meant "the kickoff fired" and Collecting meant "the client's video arrived". Production showed why that was wrong: Jennifer Dickey sat in a column labelled **Invited** with the coach form, the Meet notes and the Looms already in — 3 of 6 inputs. The label was lying; she was collecting.
 
-**Collecting entry — how the video is detected.** Nothing watches Drive folder 03 (§11), so entry is:
+Now **Invited is the client saying yes** (nothing has been sent yet — the ball is ours, which is why `CFG.PIPELINE` gives that column to Gaby, not to the client), and **Collecting starts at the kickoff**, which is exactly the moment inputs can begin arriving. **The client video is no longer a stage gate at all** — it went back to being one of the six inputs and nothing more.
 
-> `Collection — video uploaded` (Gaby marks it) **OR** `Collection — client video` (engine) — whichever appears, in either a `received` or `partial` state.
+**The ladder is walked forward, and the last rung with an event wins** — it is not "the most recent event by date". So a client whose kickoff (12 Aug) predates their recorded acceptance (13 Aug) still lands in Collecting, because Collecting sits later on the ladder. A client with a kickoff and no recorded acceptance also lands in Collecting rather than breaking. Both are verified against live data.
 
-Today only the manual path fires. Accepting both means detection can be automated later — a folder poll from our own script — with **no downstream change**: the board, the card, and every later phase read the same computed stage either way. `partial` counts as arrived because "video received; transcript not downloaded" means the video *is* there; `flagged` does not.
+**The Collecting inference — five strings only.** The confirmation-checkbox fan-out writes exactly five Stage strings and fires at kickoff, so any one of them proves Collecting was reached even when no `Invite — kickoff sent` row exists. The engine's other four strings must **never** enter this inference: `Collection — coach form` and `Collection — client video` fire later in the process, and `Confirmation` / `Nomination` are system rows with no client at all. `CFG.ENGINE_FANOUT` is that list, kept separate from `CFG.ENGINE`. Inferred stages are labelled `inferred` in the UI so the inference is never invisible.
+
+**`collectingEntry`.** The fold exposes the event that put a testimonial into Collecting (the kickoff, or the fan-out when no kickoff row exists) on the testimonial object. Flow 5 reads it rather than re-deriving the condition — "has collection started?" has exactly one answer.
+
+The Collecting → Producing gate (§4.6, three blockers) is untouched by this change.
 
 If events exist but none is a stage-entry event, the stage is **Indeterminate** — the fold does not invent a stage.
 
@@ -276,6 +280,7 @@ A `Key | Value | Notes` tab in the event-log spreadsheet, created by `setupPhase
 | `producingPieceHours` | 168 | A production piece overdue |
 | `approvalPendingHours` | 72 | Joey's approval pending |
 | `bufferTargetWeeks` | 4 | Healthy calendar buffer |
+| `videoSnoozeDays` | 2 | Flow 3 · how many days a snoozed video check stays quiet |
 | `activeMonth` | *(blank)* | e.g. `2026-08`; blank = current month |
 
 Values in the tab win. Missing keys fall back to `SETTINGS_DEFAULTS` in `config.js`, so a partial tab is safe. Unknown keys in the tab are ignored. **These are defaults to be tuned in the tab, not in code.**
@@ -417,13 +422,26 @@ Three invariants, asserted rather than assumed:
 | Flow | Anchor | Ladder |
 |---|---|---|
 | **1+2 Outreach** | `Nomination — logged` | do outreach → *coach hasn't messaged* ×2 → **Bernardo** · *mark sent* → +24h reply check → *no reply* → FU#1 +24h → FU#2 +48h → tell the coach +48h |
-| **3 Video** | `Invite — instructions email sent` | +48h check folder 03 → *checked, not there* re-arms · FU#1 → +48h FU#2 → +48h tell the coach |
+| **3 Video** | `Invite — instructions email sent` | +48h **check folder 03** → *checked, not there* flips to **send the follow-up** → FU#1 → +48h check again → FU#2 → +48h tell the coach. Snooze postpones; a check no longer does. |
 | **4 Coach form** | `Collection — coach notice` (engine) | +24h **Gaby** chases → +24h **Bernardo**. Clears itself when the engine writes `Collection — coach form`. |
-| **5 Everfit + photos** | video/folder event | passive reminder to **Gaby**, one soft escalation at `collectingStaleHours`, never leaves her |
+| **5 Everfit + photos** | entry into **Collecting** | only exists once collection has started; passive reminder to **Gaby**, one soft escalation at `collectingStaleHours`, never leaves her |
 | **6 Content** | `Collection — complete` | +5d **Miguel** soft check-in → +7d **Gaby**. **Per client, never per piece.** |
 | **7 Approval** | all five pieces done | **Joey** → +48h **Gaby** tells Bernardo → **Bernardo** nudges Joey |
 
 **Why Flow 3 anchors on the instructions email.** The fan-out shares the folder; the *instructions email* is the client being told what to do. Starting the 48h clock at the fan-out would chase a client who has not been asked yet.
+
+**Flow 3 has two states, and checking no longer makes the card vanish.**
+
+| State | Title | Message shown | Buttons |
+|---|---|---|---|
+| **A** | *Check if [Client] uploaded their video.* | **no** — there is nothing to send until you know it is missing | `Mark received` · `Checked, not there` · `Remind me in N days` |
+| **B** | *Nothing in folder 03 for [Client]. Send the follow-up.* | **yes** — `videoFollowup1` / `videoFollowup2` | `Mark received` · `Follow-up sent` · `Remind me in N days` |
+
+Pressing **Checked, not there** writes the event and moves A → B; the task **does not leave the queue**. Only `Follow-up sent` (or `Mark received`) closes it. State is B whenever the newest check is newer than the newest follow-up, or a check exists and no follow-up does; anything else is A.
+
+*Why:* the check used to re-anchor the clock, so the card disappeared for a full interval — and the follow-up step lived on that same card. Bernardo pressed it and lost sight of sending the follow-up. **A check now postpones nothing.** The only thing that postpones is the explicit snooze (`Collection — video check snoozed`, `videoSnoozeDays` in Settings): while it is live the flow returns no task at all, and when it expires the task comes back to **the state it was in**, not to the start.
+
+**Why Flow 5 waits for Collecting.** It had no precondition at all, so it fired for any testimonial that merely existed — it went out for four freshly nominated clients, one of whom had not even accepted, and its `blocking: true` then leaked those clients into the buffer indicator. It now reads `collectingEntry` from the fold (one source, not re-derived), and the staleness clock counts from **entry into Collecting** — when the task could first exist — rather than from a video or folder event that says nothing about whether Gaby has done her pulls.
 
 **Why Flow 6 is per client.** The five-piece checklist on the card is the detail view and is unchanged. The alert watches the whole package, so Miguel gets one question rather than five clocks. Both rungs measure from day 0, so acknowledging the 5d check-in clears Miguel's rung but does not postpone Gaby's 7d escalation — the escalation is about the work, not the reply. There is deliberately **no landing-page threshold**: landing-page-first is an agreement between Bernardo and Miguel, not a dashboard rule.
 
@@ -580,7 +598,26 @@ A testimonial belongs to the month of its **earliest event** for that `(email, c
 
 **The snapshot is the record** (spec §4.4). The winner event text freezes the month, the winner, the full eligible list and the winner's three conditions in the client's own words. Everything else about the raffle is live, which is right for a working list and wrong for a record: a client editing their preferences form in September must not retroactively change who was eligible in August. The client card shows a past win **above** the live conditions and says which is which, so the two can never read as contradicting each other (the failure fixed in `089dd9e`).
 
-**Draw-due state.** `waiting` (nobody eligible) → `due` (eligible, no winner) → `overdue` (the month has ended undrawn) → `done`. No Settings key: "there are eligible entries and no winner" is a fact and a month that ended is late by the calendar — neither is a timing policy, so hard rule 8 is not engaged. Two recorded winners in one month is impossible through the UI, so it is surfaced as a **Bernardo review task** rather than averaged over; both implementations name the **earliest-confirmed** winner so they cannot disagree about which one counts.
+**Draw-due state, and why one eligible entry is not enough.**
+
+| State | When |
+|---|---|
+| `done` | a winner is recorded |
+| `waiting` | nobody is eligible **or** someone in the cohort is still unresolved and the month has not ended |
+| `due` | eligible entries exist and everyone is resolved |
+| `overdue` | the month has ended and no winner was drawn |
+
+A cohort member is **resolved** when they qualify, or when they are closed (declined / dropped) — nothing more will happen either way. Anyone else is still in flight and holds the draw.
+
+*Why:* the draw used to open the moment **one** person qualified. It went live on 17 August with a single eligible entry while three clients were still working. The damage is not the noise — confirming a winner **freezes a permanent snapshot** of who was eligible, so an early draw records a one-person raffle forever and writes out people who did nothing wrong.
+
+**"Moved to another month" is deliberately not tested as a resolution.** Moving someone removes them from the cohort entirely, so it resolves the hold-up by construction. Testing the entry's `moved` flag would be a bug: inside this list it means moved **into** this month, and those people still need resolving.
+
+**The end of the month is the backstop.** Once it has passed the draw opens regardless, so it can never hang waiting on someone who will never reply.
+
+`build()` returns **`holdingUp`** — the unresolved entries, each with their stage and how long they have been in it. While the draw is waiting, the raffle view names them, says where each is stuck, and puts the **Move to another month** button beside each one: the wait has to be actionable, not a wall. **No task is generated while waiting** — the reason lives in the raffle view, not in anyone's queue.
+
+No Settings key is involved: "everyone is resolved" and "the month has ended" are both facts, not timing policy, so hard rule 8 is not engaged. Two recorded winners in one month is impossible through the UI, so it is surfaced as a **Bernardo review task** rather than averaged over; both implementations name the **earliest-confirmed** winner so they cannot disagree about which one counts.
 
 ### After the draw — two tasks, in parallel (D-080)
 

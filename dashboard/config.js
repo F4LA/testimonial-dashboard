@@ -16,7 +16,7 @@
    *
    * ENGINE — written by the deployed collection engine. READ-ONLY to us.
    *   All nine strings are listed. FANOUT marks the five written by the
-   *   confirmation-checkbox fan-out; ONLY those imply the Invited stage.
+   *   confirmation-checkbox fan-out; ONLY those imply the Collecting stage.
    *   The two form handlers fire later in the process, and CLIENT_VIDEO is
    *   dead code besides (see DASHBOARD-SYSTEM.md §11).
    *
@@ -25,13 +25,13 @@
    * ========================================================================== */
 
   var ENGINE = {
-    /* --- the confirmation-checkbox fan-out (these five imply Invited) --- */
+    /* --- the confirmation-checkbox fan-out (these five imply Collecting) --- */
     FOLDER:            "Collection — folder",
     CLIENT_VIDEO_LINK: "Collection — client video link",   // folder 03 SHARED, not uploaded
     MEET:              "Collection — Meet",
     LOOM:              "Collection — Loom",
     COACH_NOTICE:      "Collection — coach notice",
-    /* --- later, form-driven; NOT part of the Invited inference --- */
+    /* --- later, form-driven; NOT part of the Collecting inference --- */
     COACH_FORM:        "Collection — coach form",          // live
     CLIENT_VIDEO:      "Collection — client video",        // dead by D-059/D-063/D-065
     /* --- system-level; these are written with an EMPTY client email --- */
@@ -72,6 +72,10 @@
     COLLECTION_FLAG_RESOLVED: "Collection — manual review resolved",
     // --- v2 ladder (D-090) ---
     COLLECTION_VIDEO_CHECKED: "Collection — video checked",
+    // Explicit "not now" on a video check. The ONLY thing that postpones the
+    // video task — a plain check no longer re-arms the clock, because that made
+    // the card vanish for a full interval and took the follow-up with it.
+    COLLECTION_VIDEO_SNOOZED: "Collection — video check snoozed",
     COLLECTION_VIDEO_FOLLOWUP:"Collection — video follow-up sent",
     COLLECTION_VIDEO_COACH:   "Collection — video coach told",
     COACH_FORM_CHASED:        "Collection — coach form chased",
@@ -159,7 +163,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 5,
+    EXPECTED_PROXY_VERSION: 6,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.
@@ -206,7 +210,8 @@
     PIPELINE: [
       { key: "nominated",  label: "Nominated",  ball: "Coach"  },
       { key: "outreach",   label: "Outreach",   ball: "Client" },
-      { key: "invited",    label: "Invited",    ball: "Client" },
+      // The client already said yes; what is missing is US firing the kickoff.
+      { key: "invited",    label: "Invited",    ball: "Gaby"   },
       { key: "collecting", label: "Collecting", ball: "Shared" },
       { key: "producing",  label: "Producing",  ball: "Owners" },
       { key: "review",     label: "Review",     ball: "Joey"   },
@@ -272,6 +277,7 @@
       outreachCoachToldHours:        48,
       // Flow 3 · client video
       videoCheckHours:               48,
+      videoSnoozeDays:               2,
       // Flow 4 · coach form
       coachFormFollowupHours:        24,
       coachFormEscalateHours:        24,

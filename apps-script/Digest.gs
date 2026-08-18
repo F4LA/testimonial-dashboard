@@ -148,6 +148,7 @@ var D_S = {
   OUTREACH_COACH_TOLD:   'Outreach — coach told',
   INVITE_INSTRUCTIONS:   'Invite — instructions email sent',
   VIDEO_CHECKED:         'Collection — video checked',
+  VIDEO_SNOOZED:         'Collection — video check snoozed',
   VIDEO_FOLLOWUP:        'Collection — video follow-up sent',
   VIDEO_COACH_TOLD:      'Collection — video coach told',
   COACH_FORM_CHASED:     'Collection — coach form chased',
@@ -337,6 +338,10 @@ function dRaffle_(list, settings) {
       qualifies: t.raffle.qualifies, needsReview: t.raffle.needsReview,
       alreadyWon: !!t.raffleWon, personWon: !!wonBy[t.email],
       wonTs: t.raffleWon ? t.raffleWon.ts : NaN,
+      // Carried so the draw can say who it is waiting on (mirror of raffle.js).
+      terminal: t.stage === 'closed',
+      stageKey: t.stage,
+      hoursInStage: t.hours,
       monthAdded: !!t.raffleMonthAdded, messagesSent: !!t.raffleMessagesSent
     };
   });
@@ -354,15 +359,31 @@ function dRaffle_(list, settings) {
       return at - bt;
     });
 
-  var drawState = winners.length ? 'done'
-                : (eligible.length ? (dMonthIsPast_(month) ? 'overdue' : 'due')
-                                   : 'waiting');
+  /* Mirror of raffle.js. A cohort member is RESOLVED when they qualify or are
+   * closed; anyone else still holds the month up. "Moved to another month" is
+   * NOT tested — moving removes them from the cohort, so it resolves by
+   * construction, and inside this list `moved` means moved INTO this month. */
+  var unresolved = inMonth.filter(function (e) {
+    return !e.qualifies && !e.terminal;
+  });
+
+  var drawState;
+  if (winners.length) {
+    drawState = 'done';
+  } else if (!eligible.length) {
+    drawState = 'waiting';
+  } else if (unresolved.length && !dMonthIsPast_(month)) {
+    drawState = 'waiting';
+  } else {
+    drawState = dMonthIsPast_(month) ? 'overdue' : 'due';
+  }
 
   return {
     month: month, entries: inMonth, eligible: eligible,
     qualifying: inMonth.filter(function (e) { return e.qualifies; }),
     winner: winners[0] || null,
     doubleWinner: winners.length > 1 ? winners : null,
+    holdingUp: unresolved,
     drawState: drawState,
     drawDue: drawState === 'due' || drawState === 'overdue'
   };
@@ -380,6 +401,7 @@ function dReadSettings_() {
     outreachFollowup2Hours:        48,
     outreachCoachToldHours:        48,
     videoCheckHours:               48,
+    videoSnoozeDays:               2,
     coachFormFollowupHours:        24,
     coachFormEscalateHours:        24,
     collectingStaleHours:          120,
@@ -505,18 +527,24 @@ function dFold_() {
       if (e) { done++; if (!isFinite(lastPiece) || e.ts > lastPiece) lastPiece = e.ts; }
     });
 
-    // Invited: kickoff, or ANY of the five fan-out strings — never the two
+    // Collecting: kickoff, or ANY of the five fan-out strings — never the two
     // form events, which fire later in the process.
     var fanout = null;
     D_ENGINE_FANOUT.forEach(function (s) {
       var e = L(s); if (e && (!fanout || e.ts > fanout.ts)) fanout = e;
     });
 
+    // THE LADDER MOVED UP ONE RUNG (mirror of state-builder.js). Invited is now
+    // the client saying yes; Collecting starts at the kickoff, which is when
+    // inputs can actually begin arriving. The client video is no longer a stage
+    // gate — it is one of the six inputs and nothing more.
+    var collectingEntry = L(D_S.INVITE_KICKOFF) || fanout;
+
     var ladder = [
       ['nominated',  L(D_S.NOMINATION_LOGGED)],
       ['outreach',   L(D_S.OUTREACH_SENT)],
-      ['invited',    L(D_S.INVITE_KICKOFF) || fanout],
-      ['collecting', arrived(inputs.video.state) ? inputs.video.ev : null],
+      ['invited',    L(D_S.OUTREACH_ACCEPTED)],
+      ['collecting', collectingEntry],
       ['producing',  L(D_S.COMPLETE)],
       ['review',     (done === D_PIECES.length) ? { ts: lastPiece } : null],
       ['scheduled',  L(D_S.WEEK_ASSIGNED)],
@@ -541,6 +569,7 @@ function dFold_() {
       complete: !!L(D_S.COMPLETE),
       /* --- what the v2 flows read (mirror of state-builder.js) --- */
       lastByStage: last, repeats: repeats,
+      collectingEntry: collectingEntry,
       allPiecesDone: done === D_PIECES.length,
       collectionComplete: !!L(D_S.COMPLETE),
       approved: !!L(D_S.APPROVED),
@@ -685,6 +714,12 @@ function dFlowVideo_(t, s, h, v) {
   var fu = h.count(D_S.VIDEO_FOLLOWUP);
   var lastFu = h.last(D_S.VIDEO_FOLLOWUP);
   var checked = h.last(D_S.VIDEO_CHECKED);
+  var snoozed = h.last(D_S.VIDEO_SNOOZED);
+
+  // An explicit snooze is the ONLY thing that postpones this task now. A plain
+  // check used to re-anchor the clock and take the whole card away for a full
+  // interval, follow-up step included (mirror of flows.js).
+  if (snoozed && (Date.now() - snoozed.ts) < s.videoSnoozeDays * D_DAY) return null;
 
   if (fu >= 2) {
     return dRung_({
@@ -694,17 +729,24 @@ function dFlowVideo_(t, s, h, v) {
     });
   }
 
-  // The check clock re-arms on a plain check, so "checked, not there" does not
-  // burn one of the two client follow-ups.
-  var anchor = lastFu || checked || start;
-  if (checked && lastFu && checked.ts > lastFu.ts) anchor = checked;
+  // State B whenever the newest check is newer than the newest follow-up (or a
+  // check exists and no follow-up does). Anything else is state A.
+  var stateB = !!checked && (!lastFu || checked.ts > lastFu.ts);
+  var anchor = lastFu || start;
+
+  if (stateB) {
+    return dRung_({
+      flow: 'video', rung: 'followup', owner: 'Gaby',
+      hours: s.videoCheckHours, anchor: anchor,
+      title: 'Nothing in folder 03 for ' + v.Client + '. Send the follow-up.',
+      detail: 'You already checked. This is the message that goes out.'
+    });
+  }
 
   return dRung_({
-    flow: 'video', rung: fu === 0 ? 'check' : 'fu2', owner: 'Gaby',
+    flow: 'video', rung: 'check', owner: 'Gaby',
     hours: s.videoCheckHours, anchor: anchor,
-    title: fu === 0
-      ? 'Check if ' + v.Client + ' uploaded their video.'
-      : 'Check ' + v.Client + "'s video, and send the last follow-up if it isn't there.",
+    title: 'Check if ' + v.Client + ' uploaded their video.',
     detail: 'Nothing fires when a client uploads. Open folder 03 and look.'
   });
 }
@@ -741,6 +783,9 @@ function dFlowCoachForm_(t, s, h, v) {
 
 function dFlowManualPulls_(t, s, h, v) {
   if (t.collectionComplete) return null;
+  // Nothing to pull before collection starts (mirror of flows.js). Without this
+  // the task fired for freshly nominated clients, one not even accepted yet.
+  if (!t.collectingEntry) return null;
   var A = t.arrived;
   var everfit = A(t.inputs.everfit.state);
   var photos = A(t.inputs.photos.state);
@@ -761,7 +806,8 @@ function dFlowManualPulls_(t, s, h, v) {
   if (!everfit) missing.push('Everfit data');
   if (!photos) missing.push('photos');
 
-  var anchor = h.last(D_S.VIDEO_UPLOADED) || h.last(D_S.CLIENT_VIDEO_LINK);
+  // Age counts from entry into Collecting — when the task could first exist.
+  var anchor = t.collectingEntry;
   var stale = anchor && isFinite(anchor.ts) &&
               (Date.now() - anchor.ts) / D_HOUR > s.collectingStaleHours;
 
@@ -1279,7 +1325,8 @@ function dSelfCheckRaffle_() {
       }
       if (s === 'Collection — client video link') {
         problems.push('"Collection — client video link" means folder 03 was SHARED, not that the ' +
-                      'video arrived — reading it would qualify every invited client ("' + c.key + '")');
+                      'video arrived — reading it would qualify every client the fan-out has ' +
+                      'run for ("' + c.key + '")');
       }
     });
   });

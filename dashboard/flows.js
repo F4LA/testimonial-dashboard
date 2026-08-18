@@ -365,11 +365,22 @@
     var fu = h.count(S.COLLECTION_VIDEO_FOLLOWUP);
     var lastFu = h.last(S.COLLECTION_VIDEO_FOLLOWUP);
     var checked = h.last(S.COLLECTION_VIDEO_CHECKED);
+    var snoozed = h.last(S.COLLECTION_VIDEO_SNOOZED);
+
+    // THE ONLY THING THAT POSTPONES THIS TASK IS AN EXPLICIT SNOOZE.
+    // A plain check used to re-anchor the clock, which made the whole card
+    // disappear for a full interval — and the follow-up step lived on that same
+    // card, so checking the folder silently buried the thing you check in order
+    // to do. Snoozing is now the one deliberate way to say "not now".
+    if (snoozed && (root.TDClock.now() - snoozed.ts) < s.videoSnoozeDays * DAY) return null;
 
     var markReceived = { label: "Mark received", stage: S.COLLECTION_VIDEO, tone: "ok",
                          event: "Client video marked received from the queue" };
     var justChecked  = { label: "Checked, not there", stage: S.COLLECTION_VIDEO_CHECKED,
                          event: "Checked folder 03, no video yet" };
+    var snooze       = { label: "Remind me in " + s.videoSnoozeDays + " days",
+                         stage: S.COLLECTION_VIDEO_SNOOZED,
+                         event: "Video check snoozed for " + s.videoSnoozeDays + " days" };
 
     if (fu >= 2) {
       return rung({
@@ -383,22 +394,38 @@
       });
     }
 
-    // The check clock re-arms on a plain check, so "checked, not there" does
-    // not burn one of the two client follow-ups.
-    var anchor = lastFu || checked || start;
-    if (checked && lastFu && checked.ts > lastFu.ts) anchor = checked;
+    /* TWO STATES, and pressing "Checked, not there" moves between them rather
+     * than closing the task:
+     *   A — go and look in folder 03. No message shown: there is nothing to
+     *       send until you know it is missing.
+     *   B — you looked, it was not there. NOW send the follow-up; the message
+     *       appears here and only "Follow-up sent" (or "Mark received") closes it.
+     * B is the state whenever the newest check is newer than the newest
+     * follow-up (or a check exists and no follow-up does). Anything else is A. */
+    var stateB = !!checked && (!lastFu || checked.ts > lastFu.ts);
+
+    var anchor = lastFu || start;
+
+    if (stateB) {
+      return rung({
+        flow: "video", rung: "followup", owner: "Gaby",
+        hours: s.videoCheckHours, anchor: anchor,
+        title: "Nothing in folder 03 for " + v.Client + ". Send the follow-up.",
+        detail: "You already checked. This is the message that goes out.",
+        template: fu === 0 ? "videoFollowup1" : "videoFollowup2",
+        actions: [markReceived,
+                  { label: "Follow-up sent", stage: S.COLLECTION_VIDEO_FOLLOWUP,
+                    event: "Video follow-up #" + (fu + 1) + " sent to " + v.Client },
+                  snooze]
+      });
+    }
 
     return rung({
-      flow: "video", rung: fu === 0 ? "check" : "fu2", owner: "Gaby",
+      flow: "video", rung: "check", owner: "Gaby",
       hours: s.videoCheckHours, anchor: anchor,
-      title: fu === 0
-        ? "Check if " + v.Client + " uploaded their video."
-        : "Check " + v.Client + "'s video, and send the last follow-up if it isn't there.",
+      title: "Check if " + v.Client + " uploaded their video.",
       detail: "Nothing fires when a client uploads. Open folder 03 and look.",
-      template: fu === 0 ? "videoFollowup1" : "videoFollowup2",
-      actions: [markReceived, justChecked,
-                { label: "Follow-up sent", stage: S.COLLECTION_VIDEO_FOLLOWUP,
-                  event: "Video follow-up #" + (fu + 1) + " sent to " + v.Client }]
+      actions: [markReceived, justChecked, snooze]
     });
   }
 
@@ -444,6 +471,12 @@
 
   function flowManualPulls(t, s, h, v) {
     if (t.collectionComplete) return null;
+    // NOTHING TO PULL BEFORE COLLECTION STARTS. Without this gate the task was
+    // generated for any testimonial that merely existed — it fired for four
+    // freshly nominated clients, one of whom had not even accepted yet, and its
+    // `blocking: true` then leaked those clients into the buffer indicator.
+    // The condition is read from the fold, never re-derived here (one source).
+    if (!t.collectingEntry) return null;
     var A = root.StateBuilder.arrived;
     var everfit = A(t.inputs.everfit.state);
     var photos = A(t.inputs.photos.state);
@@ -468,7 +501,10 @@
     if (!everfit) missing.push("Everfit data");
     if (!photos) missing.push("photos");
 
-    var anchor = h.last(S.COLLECTION_VIDEO) || h.last(E.CLIENT_VIDEO_LINK);
+    // Age counts from when the task could first exist — entry into Collecting —
+    // not from the video or the folder link, which are unrelated to whether
+    // Gaby has done her pulls.
+    var anchor = t.collectingEntry;
     var stale = anchor && isFinite(anchor.ts) &&
                 (root.TDClock.now() - anchor.ts) / HOUR > s.collectingStaleHours;
 

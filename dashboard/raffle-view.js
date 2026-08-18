@@ -210,8 +210,42 @@
         "</section>";
     }
 
-    /* ---- nobody eligible yet ---- */
+    /* ---- waiting ---- */
     if (r.drawState === "waiting") {
+      /* THE INTERESTING CASE: there ARE eligible entries, but people are still
+       * in flight, so drawing now would freeze a snapshot that writes them out.
+       * The wait has to be actionable — name them, say where they are stuck,
+       * and put the button that resolves them right there. */
+      if (r.eligible.length && r.holdingUp.length) {
+        var rows = r.holdingUp.map(function (e) {
+          var days = isFinite(e.hoursInStage) ? Math.round(e.hoursInStage / 24) : null;
+          return '<li class="hold">' +
+            '<div class="hold__who">' +
+              '<a class="hold__name" href="#/client/' + encodeURIComponent(e.key) + '">' +
+                esc(e.name) + "</a>" +
+              '<div class="sub">' + esc(e.stageLabel || "no stage yet") +
+                (days === null ? "" : " · " + days + (days === 1 ? " day" : " days")) +
+                " · " + e.compliance.met + "/" + e.compliance.total + " conditions</div>" +
+            "</div>" +
+            '<div class="hold__act">' + moveBtn(e) + "</div>" +
+          "</li>";
+        }).join("");
+
+        return '<section class="section">' + head +
+          '<div class="banner banner--warn"><strong>Waiting on ' + r.holdingUp.length +
+          (r.holdingUp.length === 1 ? " person" : " people") + " before the draw opens.</strong> " +
+          r.eligible.length + (r.eligible.length === 1 ? " entry already qualifies" : " entries already qualify") +
+          ", but confirming a winner freezes a permanent snapshot of who was eligible — " +
+          "drawing now would write these people out of a month they are still working on. " +
+          "The draw opens on its own once everyone is resolved, and in any case on " +
+          esc(r.monthLabel) + "'s last day.</div>" +
+          '<ul class="holds">' + rows + "</ul>" +
+          '<p class="sub">Each of these resolves by qualifying, by being declined or dropped, ' +
+          "or by being moved to another month.</p>" +
+          '<div id="rfResult" class="result"></div>' +
+          "</section>";
+      }
+
       var whyNot;
       if (!r.entries.length) {
         whyNot = "No testimonial entered the pipeline in " + esc(r.monthLabel) + ".";

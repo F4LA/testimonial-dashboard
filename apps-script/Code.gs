@@ -29,8 +29,9 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    2 — + requestFanout (the fan-out bridge)
  *    3 — + the v2 task-model Stage strings (D-090)
  *    4 — + column G "Week" for scheduling (Phase 4)
- *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk) */
-var PROXY_VERSION = 5;
+ *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk)
+ *    6 — + "Collection — video check snoozed" (the two-state video check) */
+var PROXY_VERSION = 6;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -79,6 +80,7 @@ var ALLOWED_STAGES = [
   'Collection — complete',
   'Collection — manual review resolved',
   'Collection — video checked',
+  'Collection — video check snoozed',
   'Collection — video follow-up sent',
   'Collection — video coach told',
   'Collection — coach form chased',
@@ -131,6 +133,7 @@ var SETTINGS_SEED = [
   ['outreachFollowup2Hours', 48, 'Flow 1+2 · follow-up #2, N hours after follow-up #1'],
   ['outreachCoachToldHours', 48, 'Flow 1+2 · tell the coach, N hours after follow-up #2'],
   ['videoCheckHours', 48, 'Flow 3 · check folder 03 every N hours, and between video follow-ups'],
+  ['videoSnoozeDays', 2, 'Flow 3 · how many days a snoozed video check stays quiet'],
   ['coachFormFollowupHours', 24, 'Flow 4 · Gaby chases the coach N hours after the DM went out'],
   ['coachFormEscalateHours', 24, 'Flow 4 · escalates to Bernardo N hours after Gaby chased'],
   ['collectingStaleHours', 120, 'Flow 5 · Everfit/photos reminder becomes a stronger nudge to Gaby after N hours'],
