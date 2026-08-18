@@ -557,6 +557,14 @@ It exists because this button silences a client for a whole month and switches o
 
 There is **no cap** on postponements, and the dialog shows the history (*"already been postponed once, from Aug 2026"*) as information rather than a block.
 
+#### In the raffle view
+
+A postponed client leaves their old month's cohort and lands in the new one, where they **still hold that month's draw up** — correctly: they have produced nothing yet, and D-119's rule is that anyone not qualifying and not closed retains the draw. Nothing was added to the gate for them.
+
+But the row has to **say** they are paused, or it reads as a client who is stuck at 0/3 and invites somebody to chase them. Both the cohort row and the "waiting on" row carry *"postponed, outreach resumes Sep 1"*. `RaffleFold.build` exposes `postponed` / `postponedMonth` / `resumeDate` on each entry for this — **display only, read by no eligibility or draw rule**, so the Digest mirror needs nothing.
+
+> ⚠️ **The "Move to another month" button's dialog changes its wording for a postponed client.** It used to promise, unconditionally, *"does not change anything about their testimonial or their pipeline stage"*. Since D-120 that is **false** for a postponed client: the cohort month and the resume date come from the same function, so moving the month also moves the day Gaby's outreach task comes back. That coupling is the point — it is what stops the two from drifting — but the dialog now states it instead of letting somebody move a client and find out afterwards.
+
 ### Copy provenance
 
 Every template records where its wording came from, because the sources disagree.

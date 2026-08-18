@@ -641,6 +641,10 @@ a.wk__name:hover { color: var(--accent); }
 .hold__name { font-weight: 640; font-size: 14px; text-decoration: none; color: inherit; }
 .hold__name:hover { text-decoration: underline; }
 .hold__act { flex: none; }
+/* A postponed client still holds their month's draw up — correctly, they have
+   produced nothing — but they are paused on purpose, not stalled (D-120).
+   Coloured like the board's chip, not like a warning. */
+.hold__paused { color: var(--info); font-weight: 600; }
 
 @media (max-width: 720px) {
   .rf { grid-template-columns: 1fr; gap: 8px; }

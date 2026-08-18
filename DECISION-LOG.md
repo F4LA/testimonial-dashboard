@@ -13,6 +13,18 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-18 — La vista del sorteo dice que el cliente está aplazado, y el botón de mover mes deja de mentirle
+
+Sale de verificar en producción el aplazamiento de Allen Donald (entrada de abajo, mismo día). Con él ya aplazado se revisó cómo queda su fila **dentro** de la vista del sorteo, y aparecieron dos cosas que no estaban bien.
+
+**Lo que sí estaba bien:** la lista de espera ya protegía la antigüedad con `isFinite`, así que un `hoursInStage` congelado en `NaN` no imprime "NaN days" — omite los días y no pasa nada raro.
+
+**1 · La fila no decía que estaba aplazado.** Un cliente aplazado sale de la cohorte vieja y cae en la nueva, donde **sigue reteniendo el sorteo de ese mes** — y eso es correcto: no ha producido nada, y la regla de D-119 es que quien no califica y no está cerrado retiene. No se le tocó nada a la compuerta. Pero leído desde la vista de septiembre, Allen se veía como un cliente trabado en 0/3, indistinguible de uno que no contesta, e invitaba a perseguirlo. Ahora la fila de la cohorte y la de "esperando por" llevan *"postponed, outreach resumes Sep 1"*. `RaffleFold.build` expone `postponed` / `postponedMonth` / `resumeDate` — **solo display, ninguna regla de elegibilidad o de sorteo los lee**, así que el espejo del digest no necesita nada.
+
+**2 · El diálogo de "Move to another month" mentía para un aplazado.** Prometía, sin condición, *"does not change anything about their testimonial or their pipeline stage"*. Desde D-120 eso es falso para un cliente aplazado: el mes de la cohorte y la fecha de regreso salen de la misma función, así que mover el mes mueve también el día en que vuelve la tarea de outreach de Gaby. **Ese acoplamiento es justamente el diseño** — es lo que impide que los dos se desincronicen — pero el diálogo tiene que decirlo en vez de dejar que alguien mueva a un cliente y se entere después. La línea ahora cambia según el caso.
+
+---
+
 ## 2026-08-18 — El escalón de regreso escala como `start`, y `hoursInStage` congelado queda documentado
 
 Cierra los dos puntos que quedaron señalados en la entrada del aplazamiento (más abajo, mismo día). Sin cambio de comportamiento: una verificación y documentación.

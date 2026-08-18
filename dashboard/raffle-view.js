@@ -121,6 +121,12 @@
       tags += '<span class="badge badge--warn" title="' + esc(e.movedNote) + '">' + whence +
         (e.movedBy ? " by " + esc(e.movedBy) : "") + "</span>";
     }
+    // Postponed (D-120). Without this the row reads as a client who is stuck at
+    // 0/3, when in fact they asked for this month and nothing is being chased.
+    if (e.postponed) {
+      tags += '<span class="badge badge--wait" title="' + esc(e.movedNote) + '">postponed, ' +
+        "outreach resumes " + esc(dayLabel(e.resumeDate)) + "</span>";
+    }
     if (e.cycle > 1) tags += '<span class="badge badge--muted">part ' + e.cycle + "</span>";
 
     return '<li class="' + cls + '">' +
@@ -149,6 +155,14 @@
   function moveBtn(e) {
     if (e.personWon) return "";
     return '<button class="btn btn--sm rf__move" data-move="' + esc(e.key) + '">Move to another month</button>';
+  }
+
+  /** A day in the sheet's timezone, never the viewer's. */
+  function dayLabel(ts) {
+    if (!isFinite(ts)) return "";
+    var d = new Date(ts + CFG.TZ_OFFSET_MINUTES * 60000);
+    var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return MON[d.getUTCMonth()] + " " + d.getUTCDate();
   }
 
   /* ==========================================================================
@@ -225,7 +239,15 @@
                 esc(e.name) + "</a>" +
               '<div class="sub">' + esc(e.stageLabel || "no stage yet") +
                 (days === null ? "" : " · " + days + (days === 1 ? " day" : " days")) +
-                " · " + e.compliance.met + "/" + e.compliance.total + " conditions</div>" +
+                " · " + e.compliance.met + "/" + e.compliance.total + " conditions" +
+                // They hold the draw up correctly — nothing has been produced —
+                // but they are paused on purpose, not stalled. Say so, or this
+                // row invites someone to chase a client who asked to wait.
+                (e.postponed
+                  ? ' · <span class="hold__paused">postponed, outreach resumes ' +
+                    esc(dayLabel(e.resumeDate)) + "</span>"
+                  : "") +
+                "</div>" +
             "</div>" +
             '<div class="hold__act">' + moveBtn(e) + "</div>" +
           "</li>";
@@ -404,10 +426,20 @@
       title: "Move " + e.name + " to another month's raffle",
       body: "This changes which month " + e.name + " competes in. It is written to the event log " +
             "as an attributed row, so the decision is recorded rather than remembered.",
+      // ⚠️ The third line USED to read "does not change anything about their
+      // testimonial or their pipeline stage" unconditionally. Since D-120 that
+      // is false for a postponed client: the month and the resume date come from
+      // the SAME function, so moving the month moves the day their outreach task
+      // comes back. That is the intended behaviour — it is what stops the two
+      // from drifting apart — but the dialog has to say it rather than let
+      // somebody move a client and discover it later.
       consequences: [
         "Leaves the " + root.RaffleFold.monthLabel(r.month) + " raffle immediately.",
         "Appears in the chosen month's raffle, marked as moved and by whom.",
-        "Does not change anything about their testimonial or their pipeline stage.",
+        e.postponed
+          ? "They are POSTPONED, so this also moves when they come back: Gaby's " +
+            "\"send the outreach\" task moves to the first business day of the chosen month."
+          : "Does not change anything about their testimonial or their pipeline stage.",
         "The log is append-only: this cannot be deleted, only superseded by another move."
       ],
       select: { label: "Move to", placeholder: "— choose a month —", options: opts },

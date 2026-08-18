@@ -457,6 +457,13 @@
         stageKey: (t.stage && t.stage.key) || "",
         stageLabel: (t.stage && t.stage.label) || "",
         hoursInStage: t.hoursInStage,
+        // DISPLAY ONLY — no eligibility or draw rule reads these (D-120). A
+        // postponed client still holds their cohort's draw up, which is correct:
+        // they have produced nothing yet. But the row has to SAY they are paused,
+        // or it reads as a client who is stuck rather than one who is scheduled.
+        postponed: !!(t.postponement && t.postponement.pending),
+        postponedMonth: (t.postponement && t.postponement.month) || "",
+        resumeDate: (t.postponement && t.postponement.resumeDate) || NaN,
         alreadyWon: !!(t.recognitions && t.recognitions.raffleWinner),
         // The person has won at some point — possibly on another cycle.
         personWon: !!wonBy[t.email],
