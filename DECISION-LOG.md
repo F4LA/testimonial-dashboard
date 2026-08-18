@@ -13,6 +13,18 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-18 — El escalón de regreso escala como `start`, y `hoursInStage` congelado queda documentado
+
+Cierra los dos puntos que quedaron señalados en la entrada del aplazamiento (más abajo, mismo día). Sin cambio de comportamiento: una verificación y documentación.
+
+**1 · Escalonamiento.** Se revisó qué escalonamiento tiene el escalón normal de outreach antes de inventarle uno al de regreso. Resultado medido, no supuesto: **`start` tampoco escala.** Su `wait` es `0` mientras no se haya marcado que el coach no escribió (`outreachCoachNotMessagedHours` aplica solo a `retry`), así que el test `(wait > 0 && …)` de `rung()` nunca se cumple y la severidad se queda en `due` por siempre. Comprobado: un `start` con 60 días de antigüedad sigue leyendo `due`, mientras un `retry` con 59 días lee `overdue`.
+
+Como el escalón de regreso es la misma tarea con otro ancla, se **deja como estaba** — `hours: 0` anclado en `resumeDate`, `waitedHours` sube y lo hace trepar en la cola, pero no se pinta como atrasado. No se creó ningún ajuste nuevo en Settings, que es justamente lo que este escalón evita por diseño: hacerlo escalar exigiría un umbral nuevo.
+
+**2 · `hoursInStage` congelado.** Queda explícito en `DASHBOARD-SYSTEM.md` §4.8, en un bloque de advertencia con los tres casos (`NaN` mientras espera / contado desde `resumeDate` después / normal si no hay aplazamiento), más un puntero en el propio `state-builder.js`. Motivo: el campo se sobrescribe en el fold a propósito, y quien lo lea sin ese contexto va a ver `NaN` o una antigüedad que arranca el día 1 del mes y va a perseguir un bug que no existe. También dice por qué se sobrescribe el campo en vez de chequear `postponement.waiting` en los cuatro consumidores: cuatro lugares acordándose de chequear es la forma de bug que D-120 se pasó el diseño entero evitando.
+
+---
+
 ## 2026-08-18 — "Sí, pero el mes que viene": el aplazamiento (D-120)
 
 Implementa el diseño aprobado el 18 de agosto y registrado como D-120 en el repo de gobierno. El diseño estaba cerrado; esta sesión lo construye, no lo rediseña. Un solo commit: flujos, tablero, ficha, cola, espejo del digest y documentación.

@@ -456,6 +456,11 @@
 
     // 5b · the postponement (D-120), and what it does to "time in stage".
     //
+    // ⚠️ hoursInStage IS FROZEN HERE ON PURPOSE — NaN while waiting, counted
+    // from resumeDate afterwards, never from the stage-entry event. It is not a
+    // bug and it is not missing data. See DASHBOARD-SYSTEM.md §4.8, which spells
+    // out the three cases so nobody chases this.
+    //
     // The age counter STOPS while a postponed client is waiting: they are not
     // late, they are not in play, and a rising "7 days in stage" on someone who
     // asked to be left until September is the false urgency this whole change

@@ -214,7 +214,23 @@ The fold exposes `t.postponement = { pending, month, resumeDate, waiting, count 
 - **`resumeDate`** — the first business day of that month, in the sheet's timezone.
 - **`waiting`** — pending and the resume date has not arrived. This is what dims the card and stops the age counter.
 
-`hoursInStage` is overridden in the same pass: `NaN` while waiting, and counted from `resumeDate` afterwards. Every consumer (board sort, card age, digest) reads that one field, so none of them has to know about postponements.
+> ### ⚠️ `hoursInStage` IS DELIBERATELY FROZEN WHILE A POSTPONEMENT IS PENDING
+>
+> **This is not a bug. Do not "fix" it.** Step 5b of `StateBuilder.build` overwrites `hoursInStage` for any testimonial whose postponement is pending:
+>
+> | State | `hoursInStage` |
+> |---|---|
+> | pending, before `resumeDate` (`waiting`) | **`NaN`** — the clock is stopped, not zero and not missing data |
+> | pending, on or after `resumeDate` | counted from **`resumeDate`**, never from the stage-entry event |
+> | not pending | the normal `now − stage.at` |
+>
+> So a client postponed in August who sits in Outreach reads `NaN`, and the board prints `paused · resumes Sep 1` instead of a number. The `NaN` is the signal, and `ageClass()` already maps it to `age--none`.
+>
+> **Why the field is overwritten rather than left alone and special-cased downstream:** every consumer — the board's column sort, the card's age line, the digest's `hours` — reads this one field. Overriding it once in the fold means none of them has to know postponements exist, and none of them can disagree about how old a paused client is. The alternative was four places each remembering to check `postponement.waiting` first, which is the shape of bug D-120 spent its whole design avoiding.
+>
+> If you are looking at a postponed client and the age reads `NaN` or counts from the 1st of the month rather than from their real stage entry, **that is this rule working.** `Digest.gs dFold_` carries the identical override on its `hours` field.
+
+`hoursInStage` is overridden in the same pass, per the box above. Every consumer (board sort, card age, digest) reads that one field, so none of them has to know about postponements.
 
 ---
 
@@ -516,7 +532,9 @@ Asked **once**, in `Flows.evaluate`, rather than as a precondition inside each f
 | Copy | **`outreachInitial`**, the same approved D-109 text the `start` and `retry` rungs hand over. No new copy was written |
 | Closes with | **"Outreach sent"** → `Outreach — sent`, which ends the postponement and restarts the normal ladder from *today* |
 
-**No new Settings key, deliberately.** Every other rung waits a threshold measured from an event; this one waits for a date already in the data. A duration setting here would be a second, softer answer to a question the client already answered. `hours: 0` with the resume date as the anchor, so it appears that morning and not before, and escalates the way every zero-threshold rung does — `waitedHours` climbs, so an untouched one rises in the queue.
+**No new Settings key, deliberately.** Every other rung waits a threshold measured from an event; this one waits for a date already in the data. A duration setting here would be a second, softer answer to a question the client already answered. `hours: 0` with the resume date as the anchor, so it appears that morning and not before.
+
+**Its escalation is the outreach `start` rung's escalation, exactly** — because `start` has no threshold either. That rung's `wait` is `0` whenever the coach has not been chased yet (`s.outreachCoachNotMessagedHours` only applies to `retry`), so `rung()`'s `(wait > 0 && …)` test can never fire and its severity stays `due` however long it sits. Verified: a `start` rung 60 days stale still reads `due`, while a `retry` rung at 59 days reads `overdue`. The resume rung is the same task on a different anchor, so it behaves the same way — `waitedHours` climbs and an untouched one rises in the queue, but it never paints itself overdue. **Making it escalate would require a new Settings threshold, which is exactly what this rung is designed to avoid.**
 
 **`resumeDate` = the first Monday-to-Friday of the month**, at midnight in the sheet's timezone, compared as a date. Holidays are **not** modelled: a holiday costs the task one day, and a holiday table is a second thing to maintain that goes stale in silence. This is the one piece of new *timing* written in code rather than Settings, and it is a calendar rule, not a threshold — there is no setting that could make "the first business day" mean something else.
 
