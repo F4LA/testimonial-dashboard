@@ -13,6 +13,16 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-18 — RESUELTO: el proxy ya está en versión 6 (la nota de ayer quedó vieja)
+
+La entrada de ayer, "PENDIENTE ABIERTO: el proxy sigue en versión 5" (más abajo), ya no es cierta y no se edita — se registra la resolución acá, aparte, como manda la regla de append-only de este archivo.
+
+**Verificado en vivo ahora mismo:** `GET` al deployment `…qll5X-MnC3gZ` responde `{"ok":true,"version":6}`. `Code.gs` se repegó y se redesplegó el 18 de agosto sobre el deployment existente (D-092), y `syncSettings()` corrió para sembrar `videoSnoozeDays`. El botón "Remind me in N days" del video ya funciona en producción — primer uso real fue el aplazamiento de Jennifer Dickey ese mismo día.
+
+Esto se registró primero en el repo de gobernanza (`testimonial-system`, D-118) y no aquí — por eso la nota de ayer en **este** archivo seguía leyéndose como pendiente para cualquiera que solo abriera este repo. Al operar entre los dos repos, verificar el estado real (ping al proxy, banner del dashboard) pesa más que confiar en cuál de los dos logs se actualizó primero.
+
+---
+
 ## 2026-08-17 — PENDIENTE ABIERTO: el proxy sigue en versión 5, el repo espera 6
 
 Nota de traspaso, no una decisión — para que una sesión nueva no tenga que reconstruir esto de una conversación de chat.
