@@ -8,6 +8,12 @@ The source of truth for **how the dashboard actually behaves** is `DASHBOARD-SYS
 
 Stack: vanilla HTML/CSS/JS · no framework · no build step · GitHub Pages · Google Sheets API (read) · Apps Script Web App (write).
 
+## ⚠️ The collection engine's code does NOT live in this repo
+
+It lives in **`F4LA/testimonial-system`, folder `engine/`**, and is touched from **that** repo's Claude Code session — never from this one. The engine is a separate, container-bound Apps Script project; this repo's `apps-script/` holds **exactly two** files, both belonging to the dashboard's **own** standalone project: `Code.gs` (the write proxy) and `Digest.gs` (the daily digest).
+
+Four engine patches used to sit in `apps-script/`. They were removed on 2026-08-19 — three were already folded into `engine/Code.gs`, and one had drifted **behind** the live engine, so pasting it would have reverted working code. They are kept for their reasoning in `engine/history/` in the other repo, each under a "do not paste" header. If a task calls for an engine change, do it there.
+
 Always start by confirming you read the context before proposing any action.
 
 ---

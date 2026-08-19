@@ -1,5 +1,12 @@
 # Phase 5 · Raffle — the DRAW (first WRITE chunk)
 
+> **Note added 2026-08-19 — the body below is left as written.** This is a dated
+> handoff, not a living document, so it is not rewritten after the fact. One path in
+> it has since moved: `apps-script/engine-prefs-form-bridge.gs` no longer exists in
+> this repo. The engine's code is versioned in `F4LA/testimonial-system` under
+> `engine/`, and that patch is kept for its reasoning in `engine/history/`. The draw
+> itself shipped, so this brief is spent.
+
 **Handoff note, written 2026-08-09/10.** The compliance half is shipped and validated;
 the draw is not started. This file exists so a fresh session can pick the work up
 without the conversation that produced it. Read it alongside `CLAUDE.md`,

@@ -13,6 +13,32 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-19 — Los cuatro parches del motor salen de este repo
+
+`apps-script/` queda con **exactamente dos archivos**, y los dos son de este repo: `Code.gs` (el proxy de escritura) y `Digest.gs` (el resumen diario), ambos del proyecto de Apps Script propio del dashboard. Ninguno de los dos se tocó.
+
+**Borrados:**
+
+    apps-script/engine-signal-poll.gs
+    apps-script/engine-prefs-form-bridge.gs
+    apps-script/engine-fix-logEvent.gs
+    apps-script/engine-one-time-coach-form-trigger.gs
+
+**Por qué.** El código del motor de recolección ya está versionado en `F4LA/testimonial-system`, carpeta `engine/`, que es su fuente única. Verificado hoy: tres de estos cuatro ya están dentro de `engine/Code.gs`, y uno además había quedado **ATRASADO** respecto del motor en vivo — pegarlo habría revertido código que funciona. Un parche que quedó atrás de lo que corre no es documentación, es una trampa. Los cuatro se conservan por su razonamiento en `engine/history/` del otro repo, cada uno con encabezado de "no pegar"; se confirmó antes de borrar que los cuatro están ahí y llevan ese encabezado.
+
+Vivían acá por una razón que ya no existe: cuando se escribieron, el motor no estaba versionado en ninguna parte y este era el único repo a mano. Tenerlos en el repo del dashboard hacía que `apps-script/` pareciera contener dos sistemas distintos, y que una sesión de este repo pudiera creerse con permiso de editar el motor.
+
+**Barrido de menciones**, no solo en un lugar:
+
+- `DASHBOARD-SYSTEM.md` — el bloque "File layout" (los tres archivos listados como "NOT ours" desaparecen, y queda dicho que la carpeta tiene exactamente dos); las cuatro referencias sueltas de §11 (el trigger del formulario del coach, el arreglo de `logEvent_`, el puente del formulario de preferencias, el poll de Signal) ahora apuntan a `engine/Code.gs` o a `engine/history/`; y el encabezado de §11, que mandaba a leer una copia en `~/Downloads`, ahora apunta al otro repo y explica por qué esa sección **se queda**: el dashboard lee lo que el motor escribe, así que sus strings, sus fallas silenciosas y su lista de triggers le importan a quien lee el fold. Es la descripción de un vecino, no de código de este repo.
+- `README.md` — mismo bloque de layout, más la aclaración explícita.
+- `CLAUDE.md` — sección nueva arriba: el motor NO vive acá, vive en `F4LA/testimonial-system` carpeta `engine/`, y se toca desde la sesión de Claude Code de ESE repo, nunca desde esta.
+- `context/phase-5-draw-brief.md` — es una nota de traspaso fechada, no un documento vivo, así que **no se reescribió el cuerpo**: lleva un aviso arriba diciendo que esa ruta se movió, para que nadie siga un camino muerto.
+
+`DECISION-LOG.md` no se tocó fuera de esta entrada. Nueve entradas viejas nombran los archivos borrados y quedan intactas: son evidencia de lo que se sabía cuando se escribieron (D-101), y las rutas que citan eran ciertas ese día.
+
+---
+
 ## 2026-08-18 — La vista del sorteo dice que el cliente está aplazado, y el botón de mover mes deja de mentirle
 
 Sale de verificar en producción el aplazamiento de Allen Donald (entrada de abajo, mismo día). Con él ya aplazado se revisó cómo queda su fila **dentro** de la vista del sorteo, y aparecieron dos cosas que no estaban bien.

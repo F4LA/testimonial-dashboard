@@ -29,9 +29,15 @@ dashboard/
 ├── state-builder.js    ← the fold: events → state keyed on (email, cycle)
 ├── event-writer.js     ← the only write path, with write-then-verify
 └── renderer.js         ← Phase 1 foundation view
-apps-script/Code.gs     ← Web App proxy + one-time setupPhase1()
+apps-script/            ← EXACTLY TWO FILES, both the dashboard's own project
+├── Code.gs             ← Web App proxy + one-time setupPhase1()
+└── Digest.gs           ← daily per-owner Slack digest
 context/                ← build spec + real-data reference (inputs, not runtime)
 ```
+
+**The collection engine's code is not in this repo.** `apps-script/` holds only the two
+files above, both belonging to the dashboard's own standalone Apps Script project. The
+engine is a separate project, versioned in `F4LA/testimonial-system` under `engine/`.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-18**
+**Last updated: 2026-08-19**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -346,12 +346,9 @@ dashboard/
 ├── alerts.js           ← THE RULES: state → owned, thresholded tasks
 ├── queue-view.js       ← the per-person action queue
 └── renderer.js         ← shell, nav, actor picker, routing, foundation view
-apps-script/
+apps-script/            ← EXACTLY TWO FILES, both the dashboard's own project
 ├── Code.gs             ← Web App proxy + one-time setupPhase1()
-├── Digest.gs           ← daily per-owner Slack digest (NOT wired)
-├── engine-signal-poll.gs                  ← NOT ours; the fan-out bridge
-├── engine-fix-logEvent.gs                 ← NOT ours; a repair for the engine
-└── engine-one-time-coach-form-trigger.gs  ← NOT ours; a repair for the engine
+└── Digest.gs           ← daily per-owner Slack digest
 context/                ← build spec + data reference (inputs, not runtime)
 ```
 
@@ -359,6 +356,14 @@ Routes are hash-based, re-rendering from state already in memory (no refetch):
 `#/queue` (default) · `#/board` · `#/client/<email>::<cycle>` · `#/foundation`.
 
 `apps-script/Code.gs` **is** the source of truth for the deployed script. Edit here, paste into the editor, redeploy, log it.
+
+### ⚠️ The collection engine's code is NOT in this repo
+
+`apps-script/` holds **only** the two files above, and both belong to the **dashboard's own** standalone Apps Script project — the write proxy and the daily digest.
+
+The collection engine is a **different Apps Script project**, and its code is versioned in **`F4LA/testimonial-system`, folder `engine/`**. Touch it from *that* repo's Claude Code session, never from this one.
+
+Until 2026-08-19 this folder also carried four engine patches (`engine-signal-poll.gs`, `engine-prefs-form-bridge.gs`, `engine-fix-logEvent.gs`, `engine-one-time-coach-form-trigger.gs`). They were removed: three had already been folded into `engine/Code.gs`, and one of them had fallen **behind** the live engine, which made it actively dangerous to paste. All four are kept for their reasoning in `engine/history/` in the other repo, each under a "do not paste" header.
 
 ---
 
@@ -886,7 +891,11 @@ Testimonials are derived purely from event-log groups, so before this existed a 
 
 ## 11. The collection engine — what is live, and what is dead code
 
-The engine is a container-bound Apps Script on the Signal & Event Log spreadsheet. A working copy of its source is at `~/Downloads/collection-engine.gs.txt`. **Reading that source is not enough to know what runs** — several handlers are only wired up conditionally, and one is deliberately dead. Check the Triggers list, not just the code.
+The engine is a container-bound Apps Script on the Signal & Event Log spreadsheet, and a **different project from the dashboard's own**. Its source is versioned in **`F4LA/testimonial-system`, folder `engine/`** — not here, and no longer as a loose copy in `~/Downloads`. Change it from that repo's Claude Code session.
+
+This section stays in this document because the dashboard *reads what the engine writes*: its Stage strings, its silent-failure modes and its trigger list are all things a reader of the fold needs. It is a description of a neighbour, not of code in this repo.
+
+**Reading that source is not enough to know what runs** — several handlers are only wired up conditionally, and one is deliberately dead. Check the Triggers list, not just the code.
 
 ### It writes nine Stage strings, not five
 
@@ -918,7 +927,7 @@ Dead inventory:
 | `'Client video (their story)'` status line | orphaned — only the dead handler calls `markStatus_` for it |
 | `formRow_` (1003–1021) | **keep** — shared with `onCoachFormSubmit` |
 
-Re-running `installTriggers()` would **resurrect** this handler whenever `CLIENT_FORM_SHEET_ID` is still set, and it deletes every trigger before recreating them. Do not run it. Use `apps-script/engine-one-time-coach-form-trigger.gs` instead, which is additive.
+Re-running `installTriggers()` would **resurrect** this handler whenever `CLIENT_FORM_SHEET_ID` is still set, and it deletes every trigger before recreating them. Do not run it. The additive repair that installed the missing coach-form trigger was a one-time operation, kept for its reasoning in the other repo at `engine/history/2026-08-07-coach-form-trigger-onetime.gs` — deliberately **not** part of `engine/Code.gs`, and not to be pasted again.
 
 ### Nothing watches Drive folder 03
 
@@ -930,13 +939,13 @@ There is no folder watch, no periodic scan, and Apps Script has no Drive change 
 
 `logEvent_` originally resolved the Event Log through `SpreadsheetApp.getActiveSpreadsheet()`. That returns the spreadsheet the *running trigger* is attached to, not the script's container — so `onSignalEdit` (attached to Signal & Event Log) logged fine, while `onCoachFormSubmit` (attached to the coach form responses file) found no `Event Log` tab, hit `if (!tab) return;`, and dropped every write silently, with status Completed and no error. Folder-04 routing still worked because it uses DriveApp.
 
-Fixed 2026-08-07 by resolving the log by id via a new `SIGNAL_SHEET_ID` Script Property — see `apps-script/engine-fix-logEvent.gs`. The same fix makes the time-driven `Nomination` events reliable, since `getActiveSpreadsheet()` can be null in that context.
+Fixed 2026-08-07 by resolving the log by id via a new `SIGNAL_SHEET_ID` Script Property. The fix now lives in the engine's own versioned source, `engine/Code.gs` in `F4LA/testimonial-system`; the original patch is kept for its reasoning at `engine/history/2026-08-08-fix-logEvent.gs`. The same fix makes the time-driven `Nomination` events reliable, since `getActiveSpreadsheet()` can be null in that context.
 
 **Consequence for reading this system:** an engine handler running to Completed does **not** mean it wrote an event. Verify in the Event Log itself.
 
 ### The preferences-form bridge (Phase 5 groundwork)
 
-`apps-script/engine-prefs-form-bridge.gs` — additive, engine-side. `onPrefsFormSubmit` turns the client's own form answers into events, because nothing else ever did: the raffle and reviews views assume those signals exist in the log and they never have.
+Engine-side, and now part of the engine's own versioned source (`engine/Code.gs` in `F4LA/testimonial-system`; the original patch is kept for its reasoning at `engine/history/2026-08-09-prefs-form-bridge.gs`). `onPrefsFormSubmit` turns the client's own form answers into events, because nothing else ever did: the raffle and reviews views assume those signals exist in the log and they never have.
 
 Writes `Preferences — photo permission`, `Preferences — review self-reported`, `Preferences — podcast consent`, and `Preferences — unresolved` for an identity failure. Reads **by header**, not index. **Podcast consent feeds the podcast chain only — it is not a raffle condition** (D-097). Raffle condition 2 is the existing client-video event; no new event for it.
 
@@ -972,7 +981,7 @@ Moving a client to Invited fires the collection engine's fan-out, so Gaby never 
 
 1. The card's explicit **fire step** (never a drag, never a side effect) shows a confirmation naming the consequences, then calls the proxy's `requestFanout`.
 2. The proxy writes what a human tick writes — roster name in column A, **boolean** `true` in column B, `Processed` left empty — into the **first empty pre-made row (13–30)**. Never appended: an appended row holds a text `"TRUE"` that the engine's `confirmed !== true` check rejects, and Gaby could not use it as the manual fallback.
-3. The engine's `processPendingSignals` poll (every minute, `apps-script/engine-signal-poll.gs`) picks it up and runs the same `fanOut_` the checkbox does.
+3. The engine's `processPendingSignals` poll (every minute; it lives in the engine's own source, `engine/Code.gs` in `F4LA/testimonial-system`) picks it up and runs the same `fanOut_` the checkbox does.
 4. The dashboard then writes `Invite — kickoff sent`.
 
 **Order matters:** the fan-out is queued *first*. If the kickoff event were written first and queueing failed, the card would claim Invited with nothing behind it. This way a failed kickoff write is self-healing — the engine's own fan-out rows arrive and the Invited inference picks the stage up regardless.
