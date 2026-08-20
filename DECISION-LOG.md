@@ -13,6 +13,16 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-20 — El digest desplegado está atrasado respecto del repo
+
+Al redesplegar el proxy para D-131 se comparó el código en vivo del proyecto de Apps Script contra el repo, y el archivo del resumen diario en vivo (llamado "DIgest.js", con I mayúscula — no "Digest.gs" como en el repo) tiene 283 líneas menos que la versión del repo: cero ocurrencias de `dPostponement_`, `dFlowPostponed_`, `dFirstBusinessDay_` ni `POSTPONED`. El commit que agregó el aplazamiento a otro mes nunca se pegó al proyecto real.
+
+Consecuencia: si el disparador diario corre, el resumen de Slack puede seguir generándole a alguien la tarea de "manda el outreach" para un cliente que el tablero ya tiene aplazado — exactamente la clase de desincronización que el espejo del digest existe para evitar.
+
+NO SE ARREGLÓ EN ESTE PASE, a propósito: cambia lo que el equipo recibe por Slack todos los días, y esa es decisión de Bernardo, no una corrección de código unilateral. Además el nombre de archivo distinto significa que un `clasp push` directo del repo crearía un SEGUNDO archivo junto al existente, duplicando funciones en el mismo scope global — el mismo tipo de contaminación que D-128 encontró y corrigió con `.claspignore`. Cualquier arreglo futuro necesita primero resolver el nombre del archivo, no solo empujar el contenido.
+
+---
+
 ## 2026-08-20 — El botón de fan-out ahora manda el ciclo
 
 El botón "Fire the kickoff fan-out" ya conoce el ciclo del testimonio en el momento del clic (`t.cycle`, ya usado para el evento de kickoff en la misma función) y ahora también lo manda al proxy. `requestFanout_` lo escribe en una columna F nueva ("Cycle") de la fila de señales, solo cuando es un número válido — la casilla manual de Gaby sigue sin esa columna y se comporta exactamente igual que antes (aditivo puro). PROXY_VERSION 7→8, redesplegado editando el deployment existente …qll5X-MnC3gZ. Cierra, del lado del dashboard, la mitad del pendiente de D-129/D-130 que le tocaba al fan-out (F4LA/testimonial-system, D-131). El motor lee esta columna nueva en una sesión aparte.
