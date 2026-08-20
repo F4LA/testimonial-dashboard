@@ -13,6 +13,24 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-20 — Los mensajes de la rifa: uno por cada no-ganador, con su propio nombre
+
+**El bug, verificado en el código en vivo antes de tocar nada.** `flowRaffleMessages` cuelga del testimonio del GANADOR y declaraba `templates: ["raffleWinnerMessage","raffleNonWinnerMessage"]`. En `evaluate()` las dos claves se renderizaban contra los mismos `vars` — los del testimonio — así que `[Name]` resolvía al ganador en las dos, y la cantidad quedaba fija en una sin importar cuánta gente hubiera perdido. En el sorteo real de agosto la cola le entregaba a Gaby un mensaje de no-ganador que abría **"Hey Heather!"**, siendo Heather la ganadora. Con seis participantes habría pegado cinco mensajes, todos dirigidos a la ganadora.
+
+**Los destinatarios salen del snapshot congelado, nunca de la lista viva.** La copia de no-ganador dice "Your name was in the draw, but this time it went to someone else", y eso solo es cierto de quienes eran elegibles AL MOMENTO DEL SORTEO. La lista viva se sigue moviendo: alguien que califica dos días después recibiría un mensaje sobre un sorteo en el que nunca estuvo. El snapshot del evento del ganador es el registro (spec §4.4) y ya trae nombre, email y ciclo de cada elegible.
+
+Nuevo `RaffleFold.parseSnapshotEligible(text)`, el **inverso exacto** de `snapshotText`: lee el segmento entre "eligible: " y " Winner's conditions at the draw:" y saca las entradas con una regex global sobre "Nombre <email>" más el sufijo opcional " (part N)"; ciclo 1 por defecto. Devuelve `[]` ante cualquier cosa que no pueda leer, nunca una adivinanza parcial. Las dos funciones llevan un comentario que dice que son un par y que se cambian juntas: el texto vive en un log append-only, así que el formato está congelado para las filas ya escritas.
+
+**Cambio de modelo, aditivo.** Una copia puede traer sus PROPIOS vars, superpuestos a los de la tarea. La tarea nombra `recipients` y marca una plantilla como `perRecipient`; esa plantilla se renderiza una vez por persona, con `Name` / `Client First Name` / `Client` resueltos desde esa persona. Los pasos de una sola plantilla y el array `templates:` existente se comportan exactamente igual que antes. El nombre va EN EL BOTÓN — "Copy the message for Jennifer Dickey" — no solo dentro del texto: estos se pegan uno tras otro en hilos distintos de Everfit, y el nombre en el botón es lo único que hace seguro hacerlo en fila. El del ganador conserva "Copy the WINNER message" y va primero; los demás siguen, ordenados por nombre. El ganador se descarta por email Y ciclo, porque un testimonio de parte 2 es un sujeto de rifa aparte.
+
+**Dos casos que la tarea declara en vez de esconder.** Si el ganador fue la única entrada: nada de copias de no-ganador, y el título dice "the only entry this month" en lugar de prometer agradecimientos. Si el snapshot falta o no se puede leer: la copia del ganador, ninguna más, y una línea de detalle diciendo que no se pudo leer y que esos agradecimientos hay que hacerlos a mano. **Deliberadamente NO hay fallback a la lista viva** en ese segundo caso — caer en la lista viva es exactamente la falla que leer el snapshot viene a evitar, y un hueco declarado es mejor que una lista corta que parece completa.
+
+**Validado antes de cerrar, 33 comprobaciones en verde.** Contra los datos reales de agosto: exactamente dos copias, la del ganador para Heather y una para Jennifer Dickey que abre "Hey Jennifer!". Ida y vuelta `snapshotText` → `parseSnapshotEligible` con cuatro entradas, incluida una de parte 2 y un nombre con apóstrofo y guión, devolviendo la lista idéntica; el texto de las condiciones no se confunde con una entrada. Seis participantes → una copia de ganador y cinco de no-ganador, cada una con su propio nombre, ninguna dirigida a la ganadora. El caso de una sola entrada y el del snapshot ilegible, los dos explícitos. Cero placeholders sin llenar, ningún em dash, `checkTemplates` verde, `copySource` sigue en D-106.
+
+**La huella de tareas no cambió** (`owner|flow|rung|severity|clientKey`), así que `Digest.gs` no necesita cambio — confirmado corriendo la comparación entre las dos implementaciones en los tres escenarios, no asumido.
+
+---
+
 ## 2026-08-20 — El digest desplegado está atrasado respecto del repo
 
 Al redesplegar el proxy para D-131 se comparó el código en vivo del proyecto de Apps Script contra el repo, y el archivo del resumen diario en vivo (llamado "DIgest.js", con I mayúscula — no "Digest.gs" como en el repo) tiene 283 líneas menos que la versión del repo: cero ocurrencias de `dPostponement_`, `dFlowPostponed_`, `dFirstBusinessDay_` ni `POSTPONED`. El commit que agregó el aplazamiento a otro mes nunca se pegó al proyecto real.

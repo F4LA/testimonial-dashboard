@@ -42,8 +42,10 @@
     }).join("");
 
     // A step can carry more than one approved message (the raffle post-draw
-    // task sends the winner text AND the non-winner text). Each gets its own
-    // labelled button, so the two can never be confused for each other.
+    // task sends the winner text AND one thank-you per non-winner, each
+    // addressed by name). Every copy shows its own label, so two messages can
+    // never be confused for each other — the label is computed in
+    // `Flows.evaluate` and is already "Copy message" for single-template steps.
     var withText = (t.copies || []).filter(function (c) { return !!c.text; });
 
     var copyBlock = "";
@@ -51,7 +53,7 @@
       copyBlock = withText.map(function (c, i) {
         return '<div class="copybox">' +
           '<button class="btn btn--sm" data-qcopy="1" data-id="' + esc(t.id) +
-            '" data-copy="' + i + '">' + esc(withText.length > 1 ? c.label : "Copy message") + "</button>" +
+            '" data-copy="' + i + '">' + esc(c.label || "Copy message") + "</button>" +
           '<pre class="copybox__text">' + esc(c.text) + "</pre>" +
         "</div>";
       }).join("");

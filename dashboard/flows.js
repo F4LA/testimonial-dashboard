@@ -250,6 +250,10 @@
       title: o.title, detail: o.detail || "",
       template: o.template || null,
       templates: o.templates || null,
+      // Which template (if any) renders once per recipient, and who they are.
+      // Both null/empty for every other rung, so nothing else changes.
+      perRecipient: o.perRecipient || null,
+      recipients: o.recipients || [],
       actions: o.actions || [],
       anchorTs: o.anchor.ts, dueTs: due,
       waitedHours: (now - o.anchor.ts) / HOUR,
@@ -659,19 +663,70 @@
     });
   }
 
+  /**
+   * THE NON-WINNERS COME FROM THE FROZEN SNAPSHOT, never from the live eligible
+   * list. This task hangs off the WINNER's testimonial, so before this fix both
+   * templates rendered against the winner's vars: Gaby was handed a non-winner
+   * message reading "Hey Heather!" with Heather the winner, and exactly one of
+   * it however many people had lost.
+   *
+   * The snapshot in the winner event is the record of who was actually in the
+   * draw (spec §4.4). The live list keeps moving, and a client who qualifies two
+   * days later would otherwise be told their name "was in the draw".
+   */
   function flowRaffleMessages(t, s, h, v) {
     var won = h.last(S.RAFFLE_WINNER);
     if (!won || h.has(S.RAFFLE_MESSAGES)) return null;
 
+    var parsed = root.RaffleFold
+      ? root.RaffleFold.parseSnapshotEligible(won.event)
+      : [];
+
+    // Drop the winner by email AND cycle: a part-2 testimonial is a separate
+    // raffle subject, so the same person can legitimately appear as someone
+    // else's cohort member.
+    var losers = parsed.filter(function (p) {
+      return !(String(p.email).toLowerCase() === String(t.email).toLowerCase() &&
+               (p.cycle || 1) === t.cycle);
+    }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+    // An unreadable snapshot must NOT quietly fall back to the live list — that
+    // is the whole failure this exists to prevent. Say it instead.
+    var unreadable = !parsed.length;
+
+    var many = losers.length > 0;
+    var title = many
+      ? "Send the " + v.month + " raffle messages: " + v.Client + " won, and thank the rest."
+      : "Send the " + v.month + " raffle message to " + v.Client + ", the only entry this month.";
+
+    var detail;
+    if (many) {
+      detail = "The winner message plus a thank-you for each of the " + losers.length +
+               " other " + (losers.length === 1 ? "entry" : "entries") +
+               " in the draw, each addressed to them by name. All go out through Everfit. " +
+               "The list is the one frozen when the draw was confirmed, not today's.";
+    } else if (unreadable) {
+      detail = "The winner message only. The draw snapshot on this event could not be read, " +
+               "so the other entrants cannot be listed here — check the winner event in the " +
+               "timeline and send those thank-yous by hand.";
+    } else {
+      detail = "The winner message only: " + v.Client + " was the single entry in the " +
+               v.month + " draw, so there is nobody to thank for losing.";
+    }
+
     return rung({
       flow: "raffleMessages", rung: "sendMessages", owner: "Gaby", hours: 0, anchor: won,
-      title: "Send the " + v.month + " raffle messages: " + v.Client + " won, and thank the rest.",
-      detail: "The winner message plus the thank-you to everyone else who entered. " +
-              "Both go out through Everfit.",
-      // Both messages, on the same task — see `copies` in evaluate().
-      templates: ["raffleWinnerMessage", "raffleNonWinnerMessage"],
+      title: title,
+      detail: detail,
+      // One copy per recipient for the non-winner text — see `copies` in evaluate().
+      templates: many ? ["raffleWinnerMessage", "raffleNonWinnerMessage"]
+                      : ["raffleWinnerMessage"],
+      perRecipient: "raffleNonWinnerMessage",
+      recipients: losers,
       actions: [{ label: "Messages sent", stage: S.RAFFLE_MESSAGES,
-                  event: "Winner and non-winner messages sent for the " + v.month + " raffle" }]
+                  event: many
+                    ? "Winner and non-winner messages sent for the " + v.month + " raffle"
+                    : "Winner message sent for the " + v.month + " raffle (single entry)" }]
     });
   }
 
@@ -758,12 +813,45 @@
        * the first: Gaby sends the winner text and the non-winner text in the
        * same sitting (D-080 — they go out together, not in sequence). `copies`
        * is the general form; `copy`/`copySource` stay for the single-template
-       * steps so nothing else had to change. */
+       * steps so nothing else had to change.
+       *
+       * A COPY MAY CARRY ITS OWN VARS, overlaid on the task's. Until this, every
+       * template on a task rendered against the same `vars`, which are the
+       * TESTIMONIAL's — so the raffle's non-winner message was addressed to the
+       * winner, and there was exactly one of it however many people lost. A task
+       * can now name `recipients` and the template listed in `perRecipient`
+       * renders once per person, addressed to that person.
+       *
+       * The name goes ON THE BUTTON: "Copy the message for Jennifer Dickey".
+       * These get pasted one after another into different Everfit threads, and
+       * the recipient's name is the only thing that makes that safe to do in a
+       * row. */
       var keys = task.templates || (task.template ? [task.template] : []);
-      task.copies = keys.map(function (k) {
+      var perKey = task.perRecipient || null;
+      var people = task.recipients || [];
+
+      task.copies = [];
+      keys.forEach(function (k) {
         var tpl = TEMPLATES[k] || {};
-        return { key: k, label: tpl.label || "Copy message",
-                 text: render(k, vars), source: tpl.source || null };
+        if (perKey && k === perKey) {
+          people.forEach(function (p) {
+            var first = String(p.name || "").split(" ")[0] || p.name || "";
+            // Overlay, not replacement: everything else on the task (the month,
+            // the coach, the form link) still resolves exactly as before.
+            var pv = Object.assign({}, vars, {
+              Name: first, "Client First Name": first,
+              Client: p.name, "Client Name": p.name
+            });
+            task.copies.push({
+              key: k, recipient: p,
+              label: "Copy the message for " + p.name,
+              text: render(k, pv), source: tpl.source || null
+            });
+          });
+          return;
+        }
+        task.copies.push({ key: k, label: tpl.label || "Copy message",
+                           text: render(k, vars), source: tpl.source || null });
       });
 
       task.copy = task.copies.length ? task.copies[0].text : null;

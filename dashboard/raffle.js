@@ -376,6 +376,13 @@
    * without recomputing anything: the month, the winner, the full eligible
    * list, and the winner's three conditions with the client's own words. The
    * month is written as YYYY-MM so the record is machine-readable too.
+   *
+   * ⚠️ PAIRED WITH `parseSnapshotEligible` — CHANGE THEM TOGETHER.
+   * That function is the exact inverse of the `who()` format below. And the
+   * format is FROZEN for every row already written: these strings live in an
+   * append-only event log, so a "nicer" format here would leave the parser
+   * unable to read the history it exists to read. A new format needs a new
+   * marker the parser can branch on, never a silent edit to this one.
    */
   function snapshotText(month, winner, eligible) {
     function who(e) {
@@ -389,6 +396,46 @@
       "Drawn from " + eligible.length + " eligible: " +
       eligible.map(who).join(", ") + ". " +
       "Winner's conditions at the draw: " + conds + ".";
+  }
+
+  /**
+   * The EXACT INVERSE of `snapshotText`: read back who was eligible when the
+   * draw actually ran.
+   *
+   * ⚠️ PAIRED WITH `snapshotText` — CHANGE THEM TOGETHER. See the warning on
+   * that function: the format is frozen for rows already in the log.
+   *
+   * WHY THIS EXISTS RATHER THAN READING THE LIVE ELIGIBLE LIST. The non-winner
+   * message says "Your name was in the draw, but this time it went to someone
+   * else." That is only true of the people who were eligible AT THE DRAW. The
+   * live list keeps moving — someone who qualifies two days later would be sent
+   * a message about a draw they were never in. The snapshot is the record.
+   *
+   * Returns [] on anything it cannot read, never a partial guess: a short list
+   * that looks complete is worse than an empty one the caller can report.
+   */
+  function parseSnapshotEligible(text) {
+    var s = String(text == null ? "" : text);
+    var start = s.indexOf("eligible: ");
+    if (start < 0) return [];
+    var rest = s.slice(start + "eligible: ".length);
+
+    var end = rest.indexOf(" Winner's conditions at the draw:");
+    if (end >= 0) rest = rest.slice(0, end);
+
+    var out = [];
+    // "Name <email>" plus the optional " (part N)" suffix `who()` writes. The
+    // name is anything up to the angle bracket, so spaces and apostrophes in
+    // real names survive without a character class that would have to guess.
+    var re = /([^<>,]+?)\s*<([^<>\s]+)>(?:\s*\(part\s+(\d+)\))?/g;
+    var m;
+    while ((m = re.exec(rest)) !== null) {
+      var name = m[1].replace(/^[\s,]+|[\s,.]+$/g, "");
+      var cycle = m[3] ? parseInt(m[3], 10) : 1;
+      if (!name || !m[2]) return [];             // malformed → report nothing
+      out.push({ name: name, email: m[2], cycle: (cycle > 0 ? cycle : 1) });
+    }
+    return out;
   }
 
   /** The move button's event text. The YYYY-MM is what `monthOf` parses back. */
@@ -735,6 +782,8 @@
     eligibleFrom: eligibleFrom,
     drawFrom: drawFrom,
     snapshotText: snapshotText,
+    // The inverse of snapshotText. Paired — see the warnings on both.
+    parseSnapshotEligible: parseSnapshotEligible,
     moveText: moveText,
     postponeText: postponeText,
     cancelText: cancelText,

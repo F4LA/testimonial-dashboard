@@ -586,7 +586,13 @@ Every template records where its wording came from, because the sources disagree
 
 Its placeholders are **multi-word** — `[Client First Name]` and `[Coach Name]` — because that is how the copy was approved. `render()` therefore matches `[\w ]+` rather than `\w+`. Widening is safe: an unrecognised placeholder is still returned unchanged, which is the existing "a gap is visible rather than a silent blank" behaviour. Both are **aliases** of the values the card already uses, so the message and the card can never disagree about who the client or the coach is.
 
-**Two messages on one step.** A task can carry more than one approved message, via `templates: [...]` instead of `template:`. The raffle post-draw task is the first: Gaby sends the winner text **and** the non-winner text in the same sitting (D-080 — they go out together, not in sequence). `evaluate()` renders each into `task.copies`, and the queue draws one labelled button per message — **"Copy the WINNER message"** and **"Copy the NON-WINNER message"**. The labels are deliberately explicit: sending the winner text to a non-winner is the one mistake this step can make, and two buttons reading "Copy message" would invite it. Single-template steps keep the plain **"Copy message"** label and are unchanged.
+**Two messages on one step.** A task can carry more than one approved message, via `templates: [...]` instead of `template:`. The raffle post-draw task is the first: Gaby sends the winner text **and** the non-winner thank-yous in the same sitting (D-080 — they go out together, not in sequence). `evaluate()` renders each into `task.copies`, and the queue draws one labelled button per copy. Single-template steps keep the plain **"Copy message"** label and are unchanged.
+
+**One copy per recipient.** A copy may carry **its own vars**, overlaid on the task's. A task names `recipients` and marks one template `perRecipient`; that template renders once per person, with `Name` / `Client First Name` / `Client` resolved from **that person** rather than from the testimonial the task hangs off.
+
+> ⚠️ **Why this exists.** Before it, every template on a task rendered against the same vars — the *testimonial's*. The raffle post-draw task hangs off the **winner's** testimonial, so the non-winner message was addressed to the winner: in the live August draw Gaby was handed a thank-you-for-losing reading *"Hey Heather!"*, Heather being the winner. And there was exactly **one** of it, however many people had lost. With six entrants she would have pasted five identical messages, all addressed to the winner.
+
+The recipient's name goes **on the button** — *"Copy the message for Jennifer Dickey"* — not just inside the text. These get pasted one after another into different Everfit threads, and the name on the button is the only thing that makes doing that in a row safe. The winner's button keeps **"Copy the WINNER message"** and comes first; the non-winners follow, sorted by name.
 
 ⚠️ **Approved copy is stored character for character.** `outreachInitial` and both raffle messages carry typographic apostrophes (U+2019), and the winner message carries an ellipsis (U+2026) and two emoji; the older SOP templates carry straight quotes. Nothing here should be "normalised" — silently changing an approved client-facing message is the drift the provenance field exists to prevent.
 
@@ -755,7 +761,24 @@ Both fire from the winner confirmation and **neither blocks the other** — they
 
 **The dashboard never touches the Master Sheet** — it hands Miguel the task with the note text ready to paste. Both are actioned **in the queue**, like every other task; the raffle view shows their state and links there, so there is one write path per action rather than two.
 
-**Gaby's two client-facing messages are wired** (D-106): her task hands over both, as two separately labelled copy buttons — *Copy the WINNER message* and *Copy the NON-WINNER message*. See §10.4b Copy provenance for the multi-message pattern.
+**Gaby's client-facing messages are wired** (D-106): her task hands over the winner text plus **one thank-you per non-winner, each addressed to that person by name**, as separately labelled copy buttons. See §10.4b Copy provenance for the per-recipient pattern.
+
+#### The recipients come from the frozen snapshot, never the live list
+
+The non-winner copy says *"Your name was in the draw, but this time it went to someone else."* That is only true of the people who were eligible **at the draw**. The live eligible list keeps moving — a client who qualifies two days later would be handed a message about a draw they were never in.
+
+So the recipients are read back out of the winner event's frozen snapshot (§4.4) by `RaffleFold.parseSnapshotEligible`, the **exact inverse** of `snapshotText`. The winner is dropped by **email *and* cycle**, since a part-2 testimonial is a separate raffle subject.
+
+> ⚠️ **`snapshotText` and `parseSnapshotEligible` are a pair and must change together**, and the format is **frozen** for rows already written — these strings live in an append-only log, so a tidier format would leave the parser unable to read the history it exists for. A new format needs a new marker to branch on, never a silent edit.
+
+**Two cases the task states rather than hides:**
+
+| Case | What Gaby gets |
+|---|---|
+| the winner was the **only** entry | the winner copy only, and the title says *"the only entry this month"* rather than promising thank-yous |
+| the snapshot is **missing or unreadable** | the winner copy only, plus a detail line saying the snapshot could not be read and those thank-yous need doing by hand |
+
+There is deliberately **no fallback to the live eligible list** in the second case. Falling back is the exact failure this reads the snapshot to avoid; a stated gap is better than a silently short list that looks complete.
 
 ### Digest (D-088) — the raffle now lives in TWO places
 
