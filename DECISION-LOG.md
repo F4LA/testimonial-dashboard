@@ -13,6 +13,26 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-20 — El digest reconocía solo a los clientes activos
+
+**El bug, encontrado corriendo la comparación de huellas, no reportado por nadie.** Después de resincronizar el archivo desplegado, `Alerts.fingerprint(TDApp.state)` devolvió vacío y el digest devolvió una tarea: `Resolve the identity for jpaige031108@gmail.com`. Es Jennifer Dickey, la tarjeta con chip "former". `dReadRoster_` leía solo la pestaña Roster, que es una vista filtrada a clientes ACTIVOS 1:1. El registro de eventos es permanente y el Roster no, así que todo cliente que termina su contrato desaparece de ahí mientras sus eventos siguen vivos. `identity.js` siempre leyó las dos fuentes y su propio encabezado dice por qué: resolver solo contra el Roster convierte a cada cliente pasado en un falso "no identificado" y entierra los reales.
+
+**El daño que importaba no era la tarea de más.** Cuando no resuelve, el digest cae al correo para el nombre. Cualquier tarea futura de esa persona iba a nombrar una dirección. Jennifer entró a Producing el 19 y el aviso de contenido sale a los cinco días: alrededor del 24, Miguel recibía "How's the content for jpaige031108@gmail.com coming along?" sin saber de quién le hablaban.
+
+**El arreglo es un espejo, no una interpretación.** `dBuildIdentity_` reproduce `identity.js`: Roster, después Mastersheet Data quedándose con el contrato más reciente, después nada. `dLooseDate_` reproduce `parseLooseDate` con los tres formatos que esa columna mezcla de verdad. El mapa coach→Slack se cosecha del Roster, que es el único lugar donde esas direcciones existen. Un correo ausente de las dos fuentes sigue sin resolver, con la razón en el texto: el fallback amplía dónde se busca, no relaja el "nunca adivina".
+
+**Ampliar la identidad NO amplió el ruteo.** `dResolveDm_` no consulta el índice nuevo, así que un cliente o un coach siguen sin poder recibir un mensaje. Las dos garantías de D-094 quedan intactas y ahora está dicho en `DASHBOARD-SYSTEM.md`.
+
+**Una diferencia propia del lado Apps Script, documentada en el código.** El frontend lee la hoja como cadenas ya parseadas por `sheets-reader.js`; `getValues()` devuelve objetos `Date` reales para cualquier celda que Sheets reconoció como fecha. El parseo acepta las dos formas. Sin eso el ordenamiento por contrato falla en silencio y elige el coach de un contrato viejo. Misma clase de diferencia que `dMonthSetting_` con los seriales.
+
+**Validado en dos capas.** 22 comprobaciones en un sandbox fuera del proyecto al diseñar el arreglo, y 27 más al recibirlo, incluida la comparación caso por caso contra `identity.js`. Encontrado leyendo: `dSelfCheckPostponement_` construía a mano un roster falso con la forma vieja del objeto y habría seguido pasando contra una forma que el código en vivo ya no acepta; ahora se construye con el constructor real. `dSelfCheckIdentity_` queda enganchado a `selfCheck()` y comprueba EN VIVO que la pestaña exista: si le cambian el nombre lo dice, en vez de degradar callado a Roster solo. Agregado `checkIdentityFor(email)`, de solo lectura.
+
+**La huella de tareas SÍ cambia**, y ese es el punto: la tarea de identidad falsa desaparece, el nombre reemplaza al correo, y las dos implementaciones vuelven a coincidir.
+
+**La tabla de dos fuentes de verdad de `CLAUDE.md` no tenía fila para identidad** — la ausencia de esa fila es la razón por la que nadie tenía que acordarse de cambiar los dos lados. Agregada en este mismo commit.
+
+---
+
 ## 2026-08-20 — Los mensajes de la rifa: uno por cada no-ganador, con su propio nombre
 
 **El bug, verificado en el código en vivo antes de tocar nada.** `flowRaffleMessages` cuelga del testimonio del GANADOR y declaraba `templates: ["raffleWinnerMessage","raffleNonWinnerMessage"]`. En `evaluate()` las dos claves se renderizaban contra los mismos `vars` — los del testimonio — así que `[Name]` resolvía al ganador en las dos, y la cantidad quedaba fija en una sin importar cuánta gente hubiera perdido. En el sorteo real de agosto la cola le entregaba a Gaby un mensaje de no-ganador que abría **"Hey Heather!"**, siendo Heather la ganadora. Con seis participantes habría pegado cinco mensajes, todos dirigidos a la ganadora.

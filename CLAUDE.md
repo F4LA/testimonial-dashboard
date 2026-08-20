@@ -53,6 +53,7 @@ Collecting gate, or the alert rules MUST be made in both places:**
 
 | Rule | Frontend | Apps Script |
 |---|---|---|
+| **identity: Roster, then Mastersheet, else unresolved** | `dashboard/identity.js` | `apps-script/Digest.gs` `dBuildIdentity_` / `dLooseDate_` |
 | fold, ladder, classifiers | `dashboard/state-builder.js` | `apps-script/Digest.gs` |
 | Collecting → Producing gate | `dashboard/client-card.js` `collectionLock` | `apps-script/Digest.gs` |
 | task rules, owners, thresholds | `dashboard/alerts.js` | `apps-script/Digest.gs` `dTasks_` |

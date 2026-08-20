@@ -41,6 +41,7 @@
  *   raffle: eligibility and the draw-due state        raffle.js eligibleFrom/build
  *   raffle: the two parallel post-draw tasks          flows.js flowRaffleMonth/Messages
  *   raffle: the month-level draw task                 alerts.js raffleTasks
+ *   identity: Roster first, then Mastersheet Data     identity.js resolve
  *
  * If you change any of those, change them here too.
  *
@@ -68,6 +69,11 @@ var DIGEST = {
   SETTINGS_TAB: 'Settings',
   ROSTER_ID:  '1VxxqmOVuXffLOpPvMWnSUHhyhkjIajtBeBoSV3xk1fc',
   ROSTER_TAB: 'Roster',
+  // The SECOND identity source, in the same file. The Roster is a query view
+  // filtered to ACTIVE 1:1 clients, so every client eventually falls off it
+  // while their events live on forever. Reading only the Roster turns every
+  // past client into a false "unmatched" flag (mirror of identity.js).
+  MASTER_TAB: 'Mastersheet Data',
 
   DASHBOARD_URL: 'https://f4la.github.io/testimonial-dashboard/',
 
@@ -485,12 +491,64 @@ function dReadSettings_() {
   return out;
 }
 
-function dReadRoster_() {
-  var sh = SpreadsheetApp.openById(DIGEST.ROSTER_ID).getSheetByName(DIGEST.ROSTER_TAB);
-  var rows = sh.getDataRange().getValues();
-  var by = {}, coachSlack = {};
-  for (var i = 1; i < rows.length; i++) {
-    var r = rows[i];
+/* ===================== Identity (mirror of dashboard/identity.js) =====================
+ * Email is the master key everywhere (D-039), and identity is resolved against
+ * TWO sources, in order, never guessed.
+ *
+ *   1. Roster            → active client. Full identity incl. coach Slack.
+ *   2. Mastersheet Data  → former client. One row PER CONTRACT, so the MOST
+ *                          RECENT contract wins. No name column (built from
+ *                          First + Last) and no coach Slack column (resolved
+ *                          through the coach → Slack map harvested from the
+ *                          Roster).
+ *   3. Neither           → unresolved, and it stays unresolved.
+ *
+ * ⚠️ THE SECOND SOURCE IS NOT A CONVENIENCE. The Roster is a query view of
+ * ACTIVE 1:1 clients, so a client who finishes their contract disappears from
+ * it while their events live on in the append-only log. Resolving only against
+ * the Roster made every past client an "unmatched" identity flag for Gaby that
+ * had nothing to resolve, and made every OTHER task about them read out a raw
+ * email address instead of a name. The dashboard has always read both; this
+ * file read only the first, which is exactly the drift D-088 exists to catch.
+ * ===================================================================================== */
+
+var D_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                 jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+/**
+ * Mirror of identity.js `parseLooseDate`. Contract dates are NOT consistently
+ * formatted in Mastersheet Data — the same column mixes "August 5, 2024" and
+ * "5/6/2026". Returns NaN for anything else rather than inventing a date.
+ *
+ * The Date branch is this file's own: the frontend reads the sheet as display
+ * strings, while getValues() here hands back real Date objects for any cell
+ * Sheets recognised as a date. Same class of difference as dMonthSetting_.
+ */
+function dLooseDate_(v) {
+  if (v instanceof Date) return v.getTime();
+  if (!v) return NaN;
+  var t = String(v).trim();
+  if (!t) return NaN;
+
+  var m = t.match(/^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m) {
+    var mo = D_MONTHS[m[1].slice(0, 3).toLowerCase()];
+    if (mo != null) return new Date(+m[3], mo, +m[2]).getTime();
+  }
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);   // M/D/YYYY, US order
+  if (m) return new Date(+m[3], +m[1] - 1, +m[2]).getTime();
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+
+  return NaN;
+}
+
+/** Mirror of identity.js `build` + `resolve`. Built once per run. */
+function dBuildIdentity_(rosterRows, masterRows) {
+  var byRoster = {}, coachSlack = {}, i, r;
+
+  for (i = 1; i < rosterRows.length; i++) {
+    r = rosterRows[i];
     var email = String(r[2] || '').trim().toLowerCase();
     if (!email) continue;
     var rec = {
@@ -499,10 +557,87 @@ function dReadRoster_() {
       coach: String(r[5] || '').trim(),
       coachSlack: String(r[9] || '').trim()
     };
-    if (!by[email]) by[email] = rec;
+    if (!byRoster[email]) byRoster[email] = rec;
+    // The Roster is the ONLY place coach Slack addresses exist. Harvest the map
+    // here so a client resolved through the fallback can still name a coach.
     if (rec.coach && rec.coachSlack && !coachSlack[rec.coach]) coachSlack[rec.coach] = rec.coachSlack;
   }
-  return { byEmail: by, coachSlack: coachSlack };
+
+  var byMaster = {};
+  for (i = 1; i < masterRows.length; i++) {
+    r = masterRows[i];
+    var em = String(r[2] || '').trim().toLowerCase();
+    if (!em) continue;
+    var first = String(r[0] || '').trim(), last = String(r[1] || '').trim();
+    (byMaster[em] || (byMaster[em] = [])).push({
+      email: em,
+      name: (first + ' ' + last).trim(),
+      coach: String(r[9] || '').trim(),
+      contractStart: r[6],
+      datePurchased: r[5],
+      rowNumber: i + 1
+    });
+  }
+
+  // Most recent contract first, matching identity.js exactly: Contract Start,
+  // falling back to Date Purchased when it is unreadable; undated rows sort
+  // last; sheet order breaks the remaining ties.
+  Object.keys(byMaster).forEach(function (em) {
+    byMaster[em].sort(function (a, b) {
+      var av = dLooseDate_(a.contractStart), bv = dLooseDate_(b.contractStart);
+      if (!isFinite(av)) av = dLooseDate_(a.datePurchased);
+      if (!isFinite(bv)) bv = dLooseDate_(b.datePurchased);
+      if (!isFinite(av) && !isFinite(bv)) return a.rowNumber - b.rowNumber;
+      if (!isFinite(av)) return 1;
+      if (!isFinite(bv)) return -1;
+      if (bv !== av) return bv - av;
+      return b.rowNumber - a.rowNumber;
+    });
+  });
+
+  function resolve(rawEmail) {
+    var em = String(rawEmail || '').trim().toLowerCase();
+    var miss = { email: em, resolved: false, source: 'none', name: '',
+                 coach: '', coachSlack: '', active: false, contracts: 0, reason: '' };
+    if (!em) { miss.reason = 'empty email'; return miss; }
+
+    var hit = byRoster[em];
+    if (hit) {
+      return { email: em, resolved: true, source: 'roster', name: hit.name,
+               coach: hit.coach, coachSlack: hit.coachSlack || coachSlack[hit.coach] || '',
+               active: true, contracts: (byMaster[em] || []).length, reason: '' };
+    }
+
+    var cs = byMaster[em];
+    if (cs && cs.length) {
+      var latest = cs[0];
+      var slack = coachSlack[latest.coach] || '';
+      return { email: em, resolved: true, source: 'mastersheet', name: latest.name,
+               coach: latest.coach, coachSlack: slack, active: false, contracts: cs.length,
+               // A resolved client whose coach has no Slack address is still
+               // resolved — only notification routing degrades.
+               reason: slack ? '' : ('no Slack address on file for coach ' + (latest.coach || '(blank)')) };
+    }
+
+    miss.reason = 'email not found in Roster or Mastersheet Data';
+    return miss;
+  }
+
+  return { resolve: resolve, byEmail: byRoster, coachSlack: coachSlack,
+           rosterCount: Object.keys(byRoster).length,
+           masterCount: Object.keys(byMaster).length };
+}
+
+function dReadRoster_() {
+  var ss = SpreadsheetApp.openById(DIGEST.ROSTER_ID);
+  var rSh = ss.getSheetByName(DIGEST.ROSTER_TAB);
+  var mSh = ss.getSheetByName(DIGEST.MASTER_TAB);
+  var rosterRows = rSh ? rSh.getDataRange().getValues() : [];
+  // A missing tab degrades to Roster-only rather than throwing: the digest
+  // still going out with worse names beats it not going out at all. It is
+  // reported by dSelfCheckIdentity_ instead of failing silently.
+  var masterRows = mSh ? mSh.getDataRange().getValues() : [];
+  return dBuildIdentity_(rosterRows, masterRows);
 }
 
 /** Same conversion as the frontend: serials hold wall time in the sheet tz. */
@@ -1020,11 +1155,11 @@ var D_FLOWS = [dFlowOutreach_, dFlowVideo_, dFlowCoachForm_, dFlowManualPulls_,
 function dEvaluate_(t, s, roster) {
   if (t.terminal) return [];
   var h = dHelpers_(t);
-  var r = roster.byEmail[t.email] || {};
-  var name = r.name || t.email;
+  var id = roster.resolve(t.email);
+  var name = id.name || t.email;
   var v = {
     Client: name,
-    coach: r.coach || 'the coach',
+    coach: id.coach || 'the coach',
     month: t.raffleMonth
   };
   /* ONE GATE, ABOVE THE LADDERS (D-120). Mirror of flows.js `evaluate`. A
@@ -1055,8 +1190,8 @@ function dReviewTasks_(list, roster) {
     // the gate has to be repeated here. A postponed client produces ZERO tasks
     // (D-120), and a stale flag is still a task in Gaby's queue.
     if (t.postponement && t.postponement.pending) return;
-    var r = roster.byEmail[t.email] || {};
-    var name = r.name || t.email;
+    var id = roster.resolve(t.email);
+    var name = id.name || t.email;
 
     t.flags.forEach(function (f) {
       var auto = (f === 'meet' || f === 'loom' || f === 'coachForm');
@@ -1068,11 +1203,11 @@ function dReviewTasks_(list, roster) {
       });
     });
 
-    if (!roster.byEmail[t.email]) {
+    if (!id.resolved) {
       out.push({
         flow: 'review', rung: 'identity', owner: 'Gaby', sev: 'review',
         title: 'Resolve the identity for ' + t.email,
-        detail: 'Not in the roster. The system never guesses.',
+        detail: id.reason + '. The system never guesses.',
         clientKey: t.key, clientName: name, waitedHours: NaN
       });
     }
@@ -1510,7 +1645,12 @@ function dSelfCheckPostponement_() {
                    videoSnoozeDays: 2, coachFormFollowupHours: 24, coachFormEscalateHours: 24,
                    collectingStaleHours: 120, contentCheckinDays: 5, contentEscalateDays: 7,
                    approvalEscalateHours: 48 };
-  var roster = { byEmail: { 'p@x': { name: 'Pat Postponed', coach: 'Brent' } } };
+  // Built through the real builder rather than hand-shaped, so this check can
+  // never pass against a roster object the live code no longer accepts.
+  var roster = dBuildIdentity_(
+    [['First', 'Last', 'Email', 'Program', 'Start', 'Coach', 'End', 'Client Name', 'Coach Email', 'Coach Slack'],
+     ['Pat', 'Postponed', 'p@x', '1:1', '', 'Brent', '', 'Pat Postponed', 'b@x', 'brent@slack.com']],
+    []);
   var DAY = 24 * 36e5;
 
   /* A client mid-outreach with every clock long expired — without the
@@ -1630,18 +1770,114 @@ function dSelfCheckPostponement_() {
   return problems;
 }
 
+/**
+ * Structural assertions on the identity resolver (mirror of identity.js).
+ * Synthetic, so they hold whatever the live sheets happen to contain — the
+ * point is to prove the RULE, not to count today's rows.
+ */
+function dSelfCheckIdentity_() {
+  var problems = [];
+
+  var ROSTER = [
+    ['First', 'Last', 'Email', 'Program', 'Start', 'Coach', 'End', 'Client Name', 'Coach Email', 'Coach Slack'],
+    ['Active', 'Person', 'active@x.com', '1:1', '', 'Ceci', '', 'Active Person', 'c@x.com', 'ceci@slack.com']
+  ];
+  var MASTER = [
+    ['First', 'Last', 'Email', 'Product', '', 'Date Purchased', 'Contract Start', 'Contract End', '', 'Coach'],
+    ['Past', 'Person', 'past@x.com', '1:1', '', 'August 5, 2024', 'August 5, 2024', '', '', 'Brent'],
+    ['Past', 'Person', 'past@x.com', '1:1', '', '5/6/2026', '5/6/2026', '', '', 'Ceci'],
+    ['Active', 'Person', 'active@x.com', '1:1', '', 'January 2, 2020', 'January 2, 2020', '', '', 'Brent']
+  ];
+  var ID = dBuildIdentity_(ROSTER, MASTER);
+
+  var past = ID.resolve('past@x.com');
+  if (!past.resolved || past.source !== 'mastersheet') {
+    problems.push('a former client must resolve through Mastersheet Data, not become an identity flag');
+  }
+  if (past.name !== 'Past Person') {
+    problems.push('a former client must be named from First + Last, got "' + past.name + '"');
+  }
+  if (past.coach !== 'Ceci') {
+    problems.push('the MOST RECENT contract must decide the coach, got ' + past.coach);
+  }
+  if (past.coachSlack !== 'ceci@slack.com') {
+    problems.push('the coach Slack address must come from the Roster-derived map');
+  }
+  if (past.active !== false) problems.push('a mastersheet-resolved client is not active');
+
+  var act = ID.resolve('active@x.com');
+  if (act.source !== 'roster') problems.push('the Roster must win over Mastersheet Data');
+  if (act.coach !== 'Ceci') problems.push('the Roster coach must win over an older contract coach');
+
+  // The fallback must NOT turn "never heard of them" into a guess.
+  var miss = ID.resolve('stranger@x.com');
+  if (miss.resolved || miss.name) problems.push('an unknown email must not resolve, and must have no name');
+  if (ID.resolve('').resolved) problems.push('a blank email must not resolve');
+  if (!ID.resolve('  PAST@x.com ').resolved) problems.push('email matching must ignore case and spaces');
+
+  // The mixed date column, both formats plus the real Date objects getValues()
+  // returns. A wrong parse here silently picks the wrong contract's coach.
+  if (dLooseDate_('August 5, 2024') !== new Date(2024, 7, 5).getTime()) problems.push('"August 5, 2024" must parse');
+  if (dLooseDate_('5/6/2026') !== new Date(2026, 4, 6).getTime()) problems.push('"5/6/2026" is M/D/YYYY — May 6, not June 5');
+  if (dLooseDate_('2026-01-15') !== new Date(2026, 0, 15).getTime()) problems.push('an ISO date must parse');
+  if (dLooseDate_(new Date(2026, 4, 6)) !== new Date(2026, 4, 6).getTime()) problems.push('a real Date object must parse');
+  if (isFinite(dLooseDate_('whenever'))) problems.push('an unreadable date must be NaN, never a guess');
+
+  // Contract Start missing → Date Purchased decides, rather than the row order.
+  var byPurchase = dBuildIdentity_([ROSTER[0]], [
+    MASTER[0],
+    ['P', 'Q', 'p@x.com', '1:1', '', '2026-01-15', '', '', '', 'Brent'],
+    ['P', 'Q', 'p@x.com', '1:1', '', '2026-07-15', '', '', '', 'Ceci']
+  ]).resolve('p@x.com');
+  if (byPurchase.coach !== 'Ceci') {
+    problems.push('with no Contract Start, the later Date Purchased must decide, got ' + byPurchase.coach);
+  }
+
+  // The live tab must actually exist. A silent Roster-only fallback is exactly
+  // the failure this whole block is about.
+  var ss = SpreadsheetApp.openById(DIGEST.ROSTER_ID);
+  if (!ss.getSheetByName(DIGEST.MASTER_TAB)) {
+    problems.push('the "' + DIGEST.MASTER_TAB + '" tab is missing — every former client ' +
+                  'will read as an unresolved identity');
+  }
+
+  return problems;
+}
+
+/**
+ * READ-ONLY diagnostic: what this file thinks one email is, and why.
+ * Run it by hand whenever a task names an address instead of a person.
+ */
+function checkIdentityFor(email) {
+  var id = dReadRoster_();
+  var r = id.resolve(email);
+  var msg = ['=== IDENTITY FOR ' + email + ' ===',
+             'sources loaded: roster ' + id.rosterCount + ' · mastersheet ' + id.masterCount,
+             'resolved: ' + r.resolved,
+             'source: ' + r.source,
+             'name: ' + (r.name || '(none — tasks would read the raw email)'),
+             'coach: ' + (r.coach || '(none)'),
+             'coach Slack: ' + (r.coachSlack || '(none)'),
+             'active client: ' + r.active,
+             'contracts on file: ' + r.contracts,
+             'note: ' + (r.reason || '(none)')].join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
 function selfCheck() {
   var st = dReadSettings_();
   var list = dFold_(), byStage = {};
   list.forEach(function (t) { byStage[t.stage] = (byStage[t.stage] || 0) + 1; });
 
   var raf = dRaffle_(list, st);
+  var ident = dReadRoster_();
   var r = dTasks_(true);
   var tasks = r.tasks;
   function n(pred) { return tasks.filter(pred).length; }
 
   var problems = dSelfCheckRaffle_().concat(dSelfCheckPostponement_())
-                   .concat(dSelfCheckSend_()).concat(r.problems);
+                   .concat(dSelfCheckIdentity_()).concat(dSelfCheckSend_()).concat(r.problems);
 
   // Every owner must be a dashboard user. After dTasks_ reroutes, this can only
   // fail if the reroute itself broke — which is exactly when it matters.
@@ -1693,6 +1929,10 @@ function selfCheck() {
              'draw state: ' + raf.drawState,
              'winner: ' + (raf.winner ? raf.winner.email + ' (cycle ' + raf.winner.cycle + ')' : 'none'),
              'raffle tasks: ' + n(function (t) { return /raffle/i.test(t.title); }),
+             '',
+             '--- identity (mirror of dashboard/identity.js) ---',
+             'roster: ' + ident.rosterCount + ' active · mastersheet: ' + ident.masterCount + ' with contracts',
+             'unresolved: ' + n(function (t) { return t.rung === 'identity'; }),
              '',
              '--- postponement (D-120) ---',
              'postponed: ' + postponed.length +

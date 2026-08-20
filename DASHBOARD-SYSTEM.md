@@ -92,7 +92,7 @@ Browsers send only the **origin** as the `Referer` on cross-origin requests — 
 
 ---
 
-## 3. Identity resolution (`dashboard/identity.js`)
+## 3. Identity resolution (`dashboard/identity.js` · mirrored in `Digest.gs`)
 
 Email → `{ clientName, coach, coachSlack }`. Never guesses.
 
@@ -103,6 +103,19 @@ Email → `{ clientName, coach, coachSlack }`. Never guesses.
 **Why the fallback exists.** The Roster is a QUERY view filtered to active 1:1 clients; the event log is permanent. Without the fallback, every client would become a false "unmatched" flag the moment their contract ended — burying the real ones. The fallback resolves history; the Roster stays authoritative for anyone active.
 
 A client resolved via the fallback whose coach has no Slack address on file is still **resolved** — only notification routing degrades. That is recorded in `reason`, not treated as a failure.
+
+### ⚠️ `Digest.gs` read only the Roster until 2026-08-20
+
+This is a **second source of truth** (§10.5) and it had drifted on exactly this rule: `dReadRoster_` built its index from the Roster tab alone. Since the Roster is a query view of *active* clients, every client whose contract had ended came back unresolved on the digest side while the dashboard resolved them fine. Two consequences, both silent:
+
+- a **false "Resolve the identity" task for Gaby every single day**, with nothing to resolve;
+- in **every other task about that person**, their name replaced by a raw email address.
+
+`dBuildIdentity_` now mirrors `identity.js` step for step: Roster, then Mastersheet Data taking the most recent contract (`Contract Start`, falling back to `Date Purchased`, then sheet order), the coach→Slack map harvested from the Roster, and unresolved staying unresolved. `dLooseDate_` mirrors `parseLooseDate` for the two date formats that share that column, plus a `Date`-object branch this side needs because `getValues()` hands back real dates where the frontend sees display strings.
+
+The digest reads **raw rows**, so it builds the name from First + Last itself — `sheets-reader.js` does that for the frontend before `identity.js` ever sees it. Same answer, one step earlier.
+
+`dSelfCheckIdentity_()` asserts the rule structurally and reports a missing `Mastersheet Data` tab; `checkIdentityFor(email)` answers "what does the digest think this address is" for one address without sending anything. A missing tab **degrades to Roster-only rather than throwing** — the digest going out with worse names beats it not going out.
 
 ---
 
@@ -830,11 +843,15 @@ A person with no tasks gets no DM, and a day with nothing open sends **nothing a
 
 `DIGEST.PEOPLE_SLACK` is the **only** place an address is ever resolved; `dResolveDm_` has no roster fallback and refuses any name outside `D_PEOPLE`. Combined with `dTasks_` rerouting non-person owners to Gaby, a coach cannot be messaged by two independent mechanisms (D-094). `dSelfCheckSend_()` asserts both, and `installDigestTrigger()` refuses to install if either fails.
 
+**Widening identity resolution did not widen this.** `dBuildIdentity_` resolves who a *client* is, for the words inside a message; it is not a routing table and `dResolveDm_` does not consult it. A client — active or former — still cannot be sent anything, and neither can their coach.
+
 Still required before it can run: the `SLACK_BOT_TOKEN` script property in the **dashboard's** Apps Script project (properties are per project — the engine's token lives in the engine's project).
 
 ### ⚠️ It duplicates the fold — the main maintenance risk in this repo
 
-A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, **the full v2 task ladders**, the raffle, and **the postponement** — `dMonthOf_`'s three month sources, `dPostponement_`, `dFirstBusinessDay_`, the gate in `dEvaluate_` and `dReviewTasks_`, and `dFlowPostponed_`. **That is a genuine second source of truth.** Change any of those and both must change.
+A time trigger has no browser, so `Digest.gs` cannot reuse `state-builder.js`. It re-implements the same fold in Apps Script: last-write-wins, `(timestamp, row)` ordering, the five-fan-out Invited inference, the four-state inputs, the Collecting gate, **the full v2 task ladders**, the raffle, **the postponement** — `dMonthOf_`'s three month sources, `dPostponement_`, `dFirstBusinessDay_`, the gate in `dEvaluate_` and `dReviewTasks_`, and `dFlowPostponed_` — and **identity resolution** (`dBuildIdentity_` / `dLooseDate_`, mirroring `identity.js`; see §3). **That is a genuine second source of truth.** Change any of those and both must change.
+
+**Identity is the drift this file has actually suffered** (§3): it resolved against the Roster alone until 2026-08-20, so every former client produced a daily phantom task here and nowhere else. The fingerprint comparison is what makes that class of gap visible — a task the digest emits and the queue does not shows up as a line the browser side has no match for.
 
 `dSelfCheckPostponement_()` asserts the D-120 invariants structurally, on synthetic data built relative to *now* — a month far ahead is still waiting, a month already past has resumed — because the digest has no simulated clock (there is no URL to put `?sim=` on when a trigger fires it). It proves: a pending client generates exactly **zero** tasks before the resume date and exactly **one** after; a control client of the same shape *does* generate work, so the zero is not vacuous; the outreach ends the pause and the date does not; and both postponement events move the month.
 
