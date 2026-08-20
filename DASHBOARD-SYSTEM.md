@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-19**
+**Last updated: 2026-08-20**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -288,7 +288,7 @@ Guarantees, enforced on **both** sides:
 
 This replaced `mode:"no-cors"`, inherited from Coach Pulse, which made every reply opaque. A real server error like `{"ok":false,"message":"Unknown action: requestFanout"}` was invisible and had to be *inferred* seconds later from a row that never appeared — which is exactly how the fan-out bridge failed on 2026-08-08 with no visible error at all. The server's own message is now reported first; re-reading the log stays as the second check. If the readable fetch ever fails at the network/CORS layer it falls back to an opaque send, so a write is never lost.
 
-**`PROXY_VERSION` is 7** — the two postponement strings (D-120) were added to `ALLOWED_STAGES`. Redeployed by editing the existing deployment `…qll5X-MnC3gZ` → **New version** (D-092), never "New deployment". Until that redeploy runs, both postponement buttons fail in production: the strings exist in the repo and not in the vocabulary the live Web App actually enforces.
+**`PROXY_VERSION` is 8** — `requestFanout` now writes the testimonial's cycle into Signal column F (D-131). Version 7 added the two postponement strings (D-120) to `ALLOWED_STAGES`. Each is redeployed by editing the existing deployment `…qll5X-MnC3gZ` → **New version** (D-092), never "New deployment". Until a redeploy runs, whatever that version added fails in production while the repo claims it works — the deployed code is the only code that runs.
 
 **Proxy version handshake.** `Code.gs` exposes `PROXY_VERSION`; `config.js` holds `EXPECTED_PROXY_VERSION`. The dashboard pings on load and shows a red banner naming the redeploy steps when they differ. A Web App serves its **deployed** version, so editing `Code.gs` without redeploying silently keeps the old code running — that mismatch has now cost time twice (the coach form trigger, then this). Bump `PROXY_VERSION` whenever an action is added or changed.
 
@@ -981,6 +981,7 @@ Moving a client to Invited fires the collection engine's fan-out, so Gaby never 
 
 1. The card's explicit **fire step** (never a drag, never a side effect) shows a confirmation naming the consequences, then calls the proxy's `requestFanout`.
 2. The proxy writes what a human tick writes — roster name in column A, **boolean** `true` in column B, `Processed` left empty — into the **first empty pre-made row (13–30)**. Never appended: an appended row holds a text `"TRUE"` that the engine's `confirmed !== true` check rejects, and Gaby could not use it as the manual fallback.
+   **Plus one thing a human tick cannot supply: the cycle**, in column F (`PROXY_VERSION` 8, D-131). The dashboard knows it at click time — the same `t.cycle` the kickoff event is already written with — so it is passed rather than re-derived downstream. Written **only when it parses as a number above zero**, so Gaby's manual tick leaves the cell blank and behaves exactly as before. Purely additive on both sides. The engine reading that column is a separate change, in its own repo (`F4LA/testimonial-system`, D-131).
 3. The engine's `processPendingSignals` poll (every minute; it lives in the engine's own source, `engine/Code.gs` in `F4LA/testimonial-system`) picks it up and runs the same `fanOut_` the checkbox does.
 4. The dashboard then writes `Invite — kickoff sent`.
 

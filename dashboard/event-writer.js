@@ -255,8 +255,11 @@
    *
    * @param {string} clientName  EXACT roster Client Name (rosterByName_ needs
    *                             exactly one match and never approximates)
+   * @param {number} [cycle]     the testimonial's cycle, known at click time
+   *                             (D-131). Omitted leaves the Signal row's Cycle
+   *                             cell blank, exactly as a manual tick does.
    */
-  function requestFanout(clientName) {
+  function requestFanout(clientName, cycle) {
     if (root.TDClock && root.TDClock.isSimulated()) {
       return Promise.reject(new Error(
         "The clock is simulated (" + root.TDClock.label() + "), so writing is disabled. " +
@@ -269,7 +272,7 @@
     if (!CFG.WEB_APP_URL || CFG.WEB_APP_URL.indexOf("PASTE_") === 0) {
       return Promise.reject(new Error("No Apps Script Web App URL configured."));
     }
-    return post({ action: "requestFanout", clientName: clientName, actor: actor })
+    return post({ action: "requestFanout", clientName: clientName, actor: actor, cycle: cycle })
       .then(function (body) {
         if (body && body.ok === false) throw new Error(body.message || "The proxy refused the request.");
         // Belt and braces: the proxy said yes, now confirm the row is really there.

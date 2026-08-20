@@ -13,6 +13,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-20 — El botón de fan-out ahora manda el ciclo
+
+El botón "Fire the kickoff fan-out" ya conoce el ciclo del testimonio en el momento del clic (`t.cycle`, ya usado para el evento de kickoff en la misma función) y ahora también lo manda al proxy. `requestFanout_` lo escribe en una columna F nueva ("Cycle") de la fila de señales, solo cuando es un número válido — la casilla manual de Gaby sigue sin esa columna y se comporta exactamente igual que antes (aditivo puro). PROXY_VERSION 7→8, redesplegado editando el deployment existente …qll5X-MnC3gZ. Cierra, del lado del dashboard, la mitad del pendiente de D-129/D-130 que le tocaba al fan-out (F4LA/testimonial-system, D-131). El motor lee esta columna nueva en una sesión aparte.
+
+---
+
 ## 2026-08-19 — Los cuatro parches del motor salen de este repo
 
 `apps-script/` queda con **exactamente dos archivos**, y los dos son de este repo: `Code.gs` (el proxy de escritura) y `Digest.gs` (el resumen diario), ambos del proyecto de Apps Script propio del dashboard. Ninguno de los dos se tocó.

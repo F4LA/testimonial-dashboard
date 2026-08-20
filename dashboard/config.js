@@ -174,7 +174,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 7,
+    EXPECTED_PROXY_VERSION: 8,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.

@@ -806,7 +806,7 @@
 
         btn.disabled = true;
         say("Queueing the fan-out…", "");
-        root.EventWriter.requestFanout(name)
+        root.EventWriter.requestFanout(name, t.cycle)
           .then(function (res) {
             if (!res.ok) { say(res.message, "bad"); btn.disabled = false; return; }
             say(res.message + " Recording the kickoff…", "ok");

@@ -31,8 +31,9 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    4 — + column G "Week" for scheduling (Phase 4)
  *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk)
  *    6 — + "Collection — video check snoozed" (the two-state video check)
- *    7 — + the two postponement strings ("yes, but next month", D-120) */
-var PROXY_VERSION = 7;
+ *    7 — + the two postponement strings ("yes, but next month", D-120)
+ *    8 — + requestFanout writes the cycle into Signal column F (D-131) */
+var PROXY_VERSION = 8;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -270,6 +271,7 @@ function assertHeader_(sh) {
 function requestFanout_(b) {
   var name  = String(b.clientName || '').trim();
   var actor = String(b.actor || '').trim();
+  var cycle = parseInt(b.cycle, 10);   // known at click time (D-131); blank when absent
 
   if (PEOPLE.indexOf(actor) < 0) return { ok: false, message: 'Unknown or missing actor: "' + actor + '".' };
   if (!name) return { ok: false, message: 'Missing client name.' };
@@ -311,6 +313,7 @@ function requestFanout_(b) {
 
     sh.getRange(firstEmpty, 1).setValue(name);
     sh.getRange(firstEmpty, 2).setValue(true);     // boolean, not the string "TRUE"
+    if (cycle > 0) sh.getRange(firstEmpty, 6).setValue(cycle);   // col F — Cycle
     SpreadsheetApp.flush();
 
     return { ok: true, row: firstEmpty,
