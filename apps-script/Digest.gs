@@ -107,6 +107,16 @@ var DIGEST = {
   // Script Property holding the bot token. Reuse the engine's bot.
   TOKEN_PROPERTY: 'SLACK_BOT_TOKEN',
 
+  // Who gets the "new since yesterday" block on top of their own list. Joey and
+  // Bernardo are deliberately out for now: their tasks are escalations that are
+  // already rare, so flagging novelty adds nothing they cannot see at a glance.
+  NEW_MARKS_FOR: ['Gaby', 'Miguel'],
+
+  // Per-person record of the task fingerprints already announced to them.
+  // One property per person, namespaced so it cannot collide with Code.gs or
+  // DriftCheck.gs. Replaced with today's set each run — never a growing history.
+  PROP_SEEN_PREFIX: 'DIGEST_SEEN_',
+
   HOUR: 8    // local hour for the daily run
 };
 
@@ -1314,17 +1324,91 @@ function dTasks_(withProblems) {
  * this string in the browser; if the two differ, the two implementations have
  * drifted and the digest is telling the team something the queue does not say.
  */
+/**
+ * ONE task's fingerprint line. The whole-list fingerprint below is just these,
+ * sorted — and the "new since yesterday" record stores exactly these strings,
+ * so novelty is tracked by the identifier the drift check already trusts rather
+ * than by a second, parallel notion of task identity.
+ *
+ * A task that ESCALATES changes `sev`, so its key changes and it reads as new
+ * again. That is deliberate: a task that has just gone up in tone is precisely
+ * the thing worth noticing.
+ */
+function dTaskKey_(t) {
+  return [t.owner, t.flow, t.rung, t.sev, t.clientKey || ''].join('|');
+}
+
 function dFingerprint_() {
-  return dTasks_().map(function (t) {
-    return [t.owner, t.flow, t.rung, t.sev, t.clientKey || ''].join('|');
-  }).sort().join('\n');
+  return dTasks_().map(dTaskKey_).sort().join('\n');
+}
+
+/* ===================== "New since yesterday" ===================== */
+
+function dSeenProp_(owner) { return DIGEST.PROP_SEEN_PREFIX + owner; }
+
+/** null when this person has no record yet — that is what "first run" means. */
+function dReadSeen_(owner) {
+  var raw = PropertiesService.getScriptProperties().getProperty(dSeenProp_(owner));
+  if (raw === null || raw === undefined) return null;
+  try {
+    var arr = JSON.parse(raw);
+    return Object.prototype.toString.call(arr) === '[object Array]' ? arr : null;
+  } catch (e) {
+    return null;                 // unreadable record: treat as first run, not as "all new"
+  }
+}
+
+function dWriteSeen_(owner, keys) {
+  PropertiesService.getScriptProperties()
+    .setProperty(dSeenProp_(owner), JSON.stringify(keys));
+}
+
+/**
+ * Which of this person's tasks they have not been told about yet.
+ *
+ * FIRST RUN SEEDS AND MARKS NOTHING. Without that, the first morning every
+ * single open task reads as new and the block means nothing on the one day
+ * somebody is most likely to read it.
+ *
+ * Returns { firstRun, newTasks, keys } — `keys` is today's full set, which the
+ * caller writes back ONLY once the message actually went out. Nothing was
+ * announced if the send failed, so nothing should be recorded as announced.
+ */
+function dNewFor_(owner, tasks) {
+  var keys = tasks.map(dTaskKey_);
+  if (DIGEST.NEW_MARKS_FOR.indexOf(owner) < 0) {
+    return { firstRun: false, newTasks: [], keys: keys, tracked: false };
+  }
+
+  var seen = dReadSeen_(owner);
+  if (seen === null) return { firstRun: true, newTasks: [], keys: keys, tracked: true };
+
+  var seenSet = {};
+  seen.forEach(function (k) { seenSet[k] = true; });
+  var newTasks = tasks.filter(function (t) { return !seenSet[dTaskKey_(t)]; });
+  return { firstRun: false, newTasks: newTasks, keys: keys, tracked: true };
 }
 
 /* ===================== Rendering + sending ===================== */
 
-function dRender_(owner, tasks) {
+/**
+ * @param {Array} [newTasks]  tasks not announced to this person before. Rendered
+ *                            as a block ABOVE the normal list, and ONLY when
+ *                            there are some — a day with nothing new looks
+ *                            exactly like it did before this existed.
+ *
+ * The new block reuses each task's own `title`, verbatim. There is deliberately
+ * no second wording for the same task: one task, one text, generated once by the
+ * rules engine.
+ */
+function dRender_(owner, tasks, newTasks) {
   function of(sev) { return tasks.filter(function (t) { return t.sev === sev; }); }
   var L = ['*Your testimonial queue — ' + Utilities.formatDate(new Date(), DIGEST_TZ, 'EEE d MMM') + '*'];
+
+  if (newTasks && newTasks.length) {
+    L.push('', ':new: *New since yesterday (' + newTasks.length + ')*');
+    newTasks.forEach(function (t, i) { L.push((i + 1) + '. ' + t.title); });
+  }
   function block(title, arr) {
     if (!arr.length) return;
     L.push('', title);
@@ -1351,7 +1435,13 @@ function dRender_(owner, tasks) {
  *
  * Grouped by person, because the question it answers is "who is holding what".
  */
-function dRenderSummary_(tasks) {
+/**
+ * @param {Array} [problems]  anything that went wrong this run — a rerouted
+ *                            owner, or a personal list that failed to send.
+ *                            Shown at the TOP: a message that quietly omits
+ *                            somebody is the failure mode worth surfacing.
+ */
+function dRenderSummary_(tasks, problems) {
   var MARK = { overdue: ':rotating_light:', due: ':hourglass:',
                reminder: ':small_blue_diamond:', review: ':mag:' };
 
@@ -1366,6 +1456,11 @@ function dRenderSummary_(tasks) {
              (bySev.due ? '  ·  :hourglass: ' + bySev.due + ' due' : '') +
              (bySev.reminder ? '  ·  :small_blue_diamond: ' + bySev.reminder + ' reminders' : '') +
              (bySev.review ? '  ·  :mag: ' + bySev.review + ' to review' : '')];
+
+  if (problems && problems.length) {
+    L.push('', ':warning: *Problems this run*');
+    problems.forEach(function (p) { L.push('• ' + p); });
+  }
 
   var byOwner = {};
   tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
@@ -1437,7 +1532,15 @@ function previewDigest() {
   D_PEOPLE.forEach(function (o) {
     if (!byOwner[o]) return;
     out.push('--- DM to ' + o + ' (' + (DIGEST.PEOPLE_SLACK[o] || 'NO ADDRESS SET — this DM will be SKIPPED') + ') ---');
-    out.push(dRender_(o, byOwner[o]), '');
+    // READ-ONLY: dNewFor_ only reads the record. The preview must never write it,
+    // or previewing would consume the novelty the real run is supposed to report.
+    var novelty = dNewFor_(o, byOwner[o]);
+    if (novelty.tracked) {
+      out.push(novelty.firstRun
+        ? '(first run for ' + o + ': the record would be seeded and nothing marked new)'
+        : '(new since last send: ' + novelty.newTasks.length + ')');
+    }
+    out.push(dRender_(o, byOwner[o], novelty.newTasks), '');
   });
 
   // Anyone left is not a dashboard user, which dTasks_ should have made
@@ -1451,7 +1554,7 @@ function previewDigest() {
 
   if (tasks.length) {
     out.push('--- SECOND DM (team summary) to ' + DIGEST.SUMMARY_TO.join(' and ') + ' ---');
-    out.push(dRenderSummary_(tasks), '');
+    out.push(dRenderSummary_(tasks, r.problems), '');
   } else {
     out.push('(no open tasks, so nothing would be sent at all — not even the summary)', '');
   }
@@ -1503,6 +1606,27 @@ function dSelfCheckSend_() {
     problems.push('dResolveDm_ resolved a non-person — coaches must never be reachable (D-094)');
   }
 
+  /* ⚠️ DOES THE ADDRESS ACTUALLY RESOLVE? Until now this only checked that the
+   * map had a non-empty string, so an address that was present but WRONG passed
+   * without a sound — and the first anyone would learn of it is the morning that
+   * person first has a task. Ask Slack, per person.
+   *
+   * Read-only (`users.lookupByEmail`) and failure-tolerant: an unreachable Slack
+   * or a missing token is reported as a problem, never thrown, so selfCheck()
+   * and previewDigest() still finish and print everything else. */
+  D_PEOPLE.forEach(function (name) {
+    var email = DIGEST.PEOPLE_SLACK[name];
+    if (!email) return;                       // already reported above
+    try {
+      if (!dResolveDm_(name)) {
+        problems.push(name + "'s address (" + email + ') does not resolve to a Slack user — ' +
+                      'their DM will not send');
+      }
+    } catch (e) {
+      problems.push('could not verify ' + name + "'s address (" + email + '): ' + e.message);
+    }
+  });
+
   return problems;
 }
 
@@ -1525,30 +1649,73 @@ function sendDailyDigest() {
   var byOwner = {};
   tasks.forEach(function (t) { (byOwner[t.owner] || (byOwner[t.owner] = [])).push(t); });
 
-  // 1 · each person's own list.
-  // ONLY dashboard users are ever iterated. Even if a non-person owner somehow
-  // survived dTasks_, there is no loop here that would reach them.
+  // Send failures collected here, then reported in the team summary's problems
+  // block — the summary goes out after this loop, so it can carry them.
+  var failures = [];
+
+  /* 1 · each person's own list.
+   *
+   * ONLY dashboard users are ever iterated. Even if a non-person owner somehow
+   * survived dTasks_, there is no loop here that would reach them.
+   *
+   * ⚠️ EACH SEND IS ISOLATED. It used to not be: `dSlack_` throws whenever
+   * Slack answers not-ok, and `dResolveDm_` calls it, so a single unresolvable
+   * address threw straight out of this loop. With the order below, a failure on
+   * Miguel left Joey, Bernardo AND the team summary with nothing — silently,
+   * since the exception surfaced only in the execution log. The `if (!id)` guard
+   * never caught it: that only fires for an address missing from the map.
+   * One person's bad address must cost that person their message and nobody
+   * else theirs. */
   D_PEOPLE.forEach(function (owner) {
-    var mine = byOwner[owner];
-    if (!mine || !mine.length) return;
-    var id = dResolveDm_(owner);
-    if (!id) { Logger.log('No Slack address for ' + owner + ' — skipped.'); return; }
-    dSlack_('chat.postMessage', { channel: id, text: dRender_(owner, mine) });
+    var mine = byOwner[owner] || [];
+    var novelty = dNewFor_(owner, mine);
+
+    if (!mine.length) {
+      // Nothing to send. Their record still becomes today's (empty) set, so a
+      // task that disappears and later comes back reads as new again.
+      if (novelty.tracked) dWriteSeen_(owner, novelty.keys);
+      return;
+    }
+
+    try {
+      var id = dResolveDm_(owner);
+      if (!id) {
+        failures.push('No Slack address resolved for ' + owner + ' — their list was not sent.');
+        Logger.log('No Slack address for ' + owner + ' — skipped.');
+        return;
+      }
+      dSlack_('chat.postMessage', { channel: id, text: dRender_(owner, mine, novelty.newTasks) });
+
+      // Recorded only now: nothing was announced if the send did not happen, so
+      // a failed morning must not mark today's tasks as already seen.
+      if (novelty.tracked) dWriteSeen_(owner, novelty.keys);
+
+    } catch (e) {
+      failures.push(owner + "'s list failed to send: " + e.message);
+      Logger.log('DIGEST SEND FAILED for ' + owner + ': ' + e.message);
+    }
   });
 
-  // 2 · the whole-team summary, as a SEPARATE second DM.
-  // Skipped entirely when there is nothing open, so a quiet day sends nothing
-  // at all rather than a message saying there is nothing.
-  if (tasks.length) {
-    var summary = dRenderSummary_(tasks);
+  /* 2 · the whole-team summary, as a SEPARATE second DM.
+   * Skipped entirely when there is nothing open, so a quiet day sends nothing
+   * at all rather than a message saying there is nothing — unless a send failed,
+   * which must be reported even on an otherwise quiet day. */
+  if (tasks.length || failures.length) {
+    var summary = dRenderSummary_(tasks, r.problems.concat(failures));
     DIGEST.SUMMARY_TO.forEach(function (owner) {
       // Routed through the same resolver, so the summary can no more reach a
-      // coach than a personal list can.
-      var id = dResolveDm_(owner);
-      if (!id) { Logger.log('No Slack address for ' + owner + ' — summary skipped.'); return; }
-      dSlack_('chat.postMessage', { channel: id, text: summary });
+      // coach than a personal list can. Isolated for the same reason as above.
+      try {
+        var id = dResolveDm_(owner);
+        if (!id) { Logger.log('No Slack address for ' + owner + ' — summary skipped.'); return; }
+        dSlack_('chat.postMessage', { channel: id, text: summary });
+      } catch (e) {
+        Logger.log('DIGEST SUMMARY FAILED for ' + owner + ': ' + e.message);
+      }
     });
   }
+
+  failures.forEach(function (f) { Logger.log('DIGEST PROBLEM: ' + f); });
 }
 
 /** Compare this file's fold against what the dashboard shows. Read-only. */

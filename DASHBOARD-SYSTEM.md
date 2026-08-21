@@ -840,11 +840,40 @@ Two messages rather than one longer one, deliberately: the first has to stay act
 
 A person with no tasks gets no DM, and a day with nothing open sends **nothing at all** — not even a "nothing to do" summary. Verified with an empty log: zero Slack calls.
 
+### "New since yesterday" — Gaby and Miguel only
+
+Their own list carries a block **above** the normal one, and only when there is something in it:
+
+```
+🆕 New since yesterday (1)
+1. How's the content for Heather Spillers coming along? 0 of 5 pieces still open.
+```
+
+Below it, the message is unchanged — same tiers, same dashboard link. **A day with nothing new looks exactly as it did before this existed.** Joey and Bernardo are deliberately out: their tasks are escalations, already rare enough that novelty adds nothing.
+
+**Novelty is the task fingerprint, not a new identifier.** `dTaskKey_` produces the same `owner|flow|rung|severity|clientKey` line the drift check compares, and `dFingerprint_` is now just those lines sorted — one definition, not two. Each tracked person has a Script Property (`DIGEST_SEEN_<name>`) holding the keys already announced to them; it is **replaced** by today's set each run, never accumulated.
+
+| Case | Behaviour |
+|---|---|
+| **first run** for a person | record seeded, **nothing marked** — otherwise the first morning flags everything, on the one day someone is most likely to read it |
+| task **escalates** | `severity` changes, so the key changes and it reads as **new again** — deliberate; a task that just went up in tone is the thing worth noticing |
+| person has **no tasks** | record becomes today's empty set, so a task that disappears and returns is new again |
+| the send **failed** | record **not** updated — nothing was announced, so nothing is recorded as announced |
+| `previewDigest()` | reads the record, **never writes it**; previewing cannot consume the novelty the real run should report |
+
+The block reuses each task's own `title` verbatim. There is no second wording for the same task.
+
 ### Addresses, and why a coach cannot be reached
 
 `DIGEST.PEOPLE_SLACK` is the **only** place an address is ever resolved; `dResolveDm_` has no roster fallback and refuses any name outside `D_PEOPLE`. Combined with `dTasks_` rerouting non-person owners to Gaby, a coach cannot be messaged by two independent mechanisms (D-094). `dSelfCheckSend_()` asserts both, and `installDigestTrigger()` refuses to install if either fails.
 
 **Widening identity resolution did not widen this.** `dBuildIdentity_` resolves who a *client* is, for the words inside a message; it is not a routing table and `dResolveDm_` does not consult it. A client — active or former — still cannot be sent anything, and neither can their coach.
+
+> ⚠️ **One person's bad address used to cost everyone theirs.** `dSlack_` throws whenever Slack answers not-ok, and `dResolveDm_` calls it — so an address that did not resolve threw straight out of the send loop. The `if (!id)` guard never caught that: it only fires for an address *missing from the map*. With the order `Gaby, Miguel, Joey, Bernardo`, a failure on Miguel left Joey, Bernardo **and the team summary** with nothing, and said so only in the execution log.
+>
+> Each person's send is now isolated in its own `try`. A failure costs that person their message and nobody else theirs, and it is reported in the summary's **Problems this run** block — which is also why the summary now goes out on an otherwise quiet day if something failed. Verified by simulating exactly that shape: with Miguel throwing, Gaby, Joey and both summaries still went.
+
+**The self-check now asks Slack whether each address actually resolves.** It used to check only that the map held a non-empty string, so an address that was *present but wrong* passed in silence — and the first anyone would learn of it is the morning that person first has a task. The live lookup is read-only and failure-tolerant: an unreachable Slack is reported as a problem, never thrown, so `selfCheck()` and `previewDigest()` still finish.
 
 Still required before it can run: the `SLACK_BOT_TOKEN` script property in the **dashboard's** Apps Script project (properties are per project — the engine's token lives in the engine's project).
 

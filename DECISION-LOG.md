@@ -21,6 +21,40 @@ Se agrega `.clasp.json` en la raíz (Script ID `1q6spjnmFYXeq4UmUvncqBoO6Q0mhZ7i
 
 ---
 
+## 2026-08-21 — El resumen diario marca lo nuevo, y un fallo de envío deja de tumbar al resto
+
+Dos cosas en el mismo pase, las dos sobre `Digest.gs`. Sin redespliegue: el digest corre por disparador de tiempo y toma el código actual del proyecto; `Code.gs` y `PROXY_VERSION` no se tocaron.
+
+### 1 · "New since yesterday", para Gaby y Miguel
+
+La lista personal de esas dos personas lleva ahora un bloque **arriba** del resumen que ya existía, y solo cuando hay algo: `🆕 New since yesterday (N)` con las tareas numeradas. Debajo sigue el mensaje igual que siempre, mismo enlace al tablero incluido. Un día sin novedades produce un mensaje **idéntico** al de hoy. Joey y Bernardo quedan fuera por ahora.
+
+**La novedad se mide con la huella de tarea que ya existía**, no con un identificador nuevo: `dTaskKey_` produce la misma línea `owner|flow|rung|severity|clientKey` que compara el chequeo de deriva, y `dFingerprint_` pasó a ser exactamente esas líneas ordenadas — una sola definición en el archivo, no dos. Cada persona rastreada tiene una Script Property (`DIGEST_SEEN_<nombre>`) con las huellas ya anunciadas, que se **reemplaza** por el conjunto de hoy en cada corrida, sin acumular histórico.
+
+Las decisiones que venían tomadas quedaron implementadas tal cual: una tarea que **escala** cambia de huella y se vuelve a marcar (es lo que hay que notar); la **primera corrida** siembra y no marca nada; y el texto de cada tarea sale **tal cual** del motor de tareas, sin una segunda versión de la copia.
+
+Dos casos que hubo que decidir al escribirlo, y que quedan documentados en el código: si el envío **falla**, el registro NO se actualiza — nada se anunció, así que nada debe quedar como anunciado, y a la mañana siguiente esas tareas siguen siendo nuevas. Y `previewDigest()` **lee el registro pero nunca lo escribe**: previsualizar no puede consumir la novedad que la corrida real tiene que reportar.
+
+### 2 · Un fallo de envío ya no tumba a los demás (defecto real, preventivo)
+
+`dSlack_` lanza excepción cuando Slack responde no-ok, y `dResolveDm_` lo llama — así que una dirección que no resolviera **tiraba fuera del bucle de envío**. La guarda `if (!id)` nunca atrapaba eso: solo cubre el caso de una dirección **ausente del mapa**. Con el orden `Gaby, Miguel, Joey, Bernardo`, un fallo en Miguel dejaba sin mensaje a Joey, a Bernardo **y al resumen del equipo**, y solo se veía en el log de ejecución.
+
+Ahora cada envío va aislado en su propio `try`: un fallo cuesta el mensaje de esa persona y de nadie más, y queda nombrado en el bloque **Problems this run** del resumen — que por eso también sale en un día por lo demás quieto, si algo falló.
+
+Y el autochequeo ahora **le pregunta a Slack** si cada dirección resuelve de verdad. Antes solo comprobaba que el mapa tuviera una cadena no vacía, así que una dirección presente pero equivocada pasaba en silencio, y lo primero que alguien notaría sería la mañana en que esa persona tuviera su primera tarea. La consulta es de solo lectura y tolerante a fallos: un Slack inalcanzable se reporta como problema, nunca se lanza, así que `selfCheck()` y `previewDigest()` terminan igual.
+
+**Nada de esto está roto hoy:** las cuatro direcciones configuradas se verificaron contra Slack en vivo y resuelven. El arreglo es preventivo — y la fecha en que importaba era cercana, porque las primeras tareas de Miguel a la hora del digest caen el 25 de agosto (los avisos de contenido de Jennifer y Heather, a 5 días de sus `Collection — complete` del 19).
+
+### Verificación
+
+Bancos nuevos, 33 comprobaciones en verde entre los dos: la lógica de novedad (primera corrida siembra sin marcar, nada nuevo el segundo día, una tarea nueva marcada sola, la escalada re-marcada, el día vacío y la reaparición, Joey y Bernardo sin bloque ni propiedad, un registro ilegible tratado como primera corrida y no como "todo nuevo"), y el aislamiento del envío simulando exactamente la forma del defecto — con Miguel lanzando, Gaby y Joey reciben lo suyo, Gaby y Bernardo el resumen, el fallo aparece nombrado en Problems this run y en el log, y el registro de Miguel queda sin escribir.
+
+**La comparación de huellas del chequeo de deriva se corrió, no se razonó:** sigue coincidiendo. La huella no incluye el texto del mensaje, así que no se movió — que es lo que se esperaba, pero comprobado. Los cuatro bancos anteriores (identidad, D-120, mensajes del sorteo, paridad con ex-cliente) siguen verdes.
+
+**La vista previa no se pudo correr en el proyecto real** (no está desplegado como API executable y Chrome no está conectado desde esta sesión). Se reprodujo localmente con la configuración real y el estado real de hoy — 0 tareas para las cuatro personas, así que hoy el digest no manda nada a nadie — y con el escenario del 25 de agosto para ver el bloque nuevo en su primera corrida y en la siguiente. Queda pendiente correr `previewDigest()` y `dSelfCheckSend_()` en el editor para confirmarlo contra el proyecto en vivo.
+
+---
+
 ## 2026-08-21 — El código del chequeo de deriva llega al repo (el hueco de ayer, cerrado)
 
 Cierra el hueco señalado al registrar D-135 (entrada de abajo, mismo día): esa entrada describía `DriftCheck.gs` y la costura de reloj de `Digest.gs` como hechos, pero **el código solo existía en el editor de Apps Script**. `apps-script/` tenía dos archivos y `Digest.gs` no tenía ni `dNow_()` ni `D_NOW_OVERRIDE`. Ahora el repo coincide con lo desplegado.
