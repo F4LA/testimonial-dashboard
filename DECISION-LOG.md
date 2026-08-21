@@ -13,6 +13,32 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-21 — selfCheck() promovido a trabajo recurrente (DriftCheck.gs)
+
+**Por qué.** Las dos desincronizaciones del 20 de agosto (identidad y aplazamiento) llevaban días vivas y solo se encontraron porque alguien estaba tocando otra cosa. `selfCheck()` ya probaba que el tablero y el digest coinciden, pero solo cuando una persona lo corría a mano. Este archivo elimina ese paso.
+
+**Cómo obtiene la huella del tablero sin navegador — el problema central.** No reimplementa las reglas del tablero por tercera vez. Baja el código REAL y desplegado desde `f4la.github.io` (nunca el repo — comparar repo contra digest desplegado reabriría del otro lado el mismo hueco que este archivo existe para cerrar), lo evalúa dentro de su propia caja aislada (nunca el espacio global de Apps Script, ya compartido con `Code.gs` y contaminado una vez por un `clasp push` sin filtro, D-127 en el repo del motor), le da los mismos datos de las hojas a través de los MISMOS parsers que el tablero ya expone para pruebas offline (`SheetsReader._parseEventLog` etc.), y llama a `Alerts.fingerprint(state)` — la propia función del tablero. Es el código real, no una copia de las reglas.
+
+**Deliberadamente NO comparte la lectura de hojas con `Digest.gs`:** cada lado lee el mundo a su manera, igual que en producción. Compartir la lectura habría vuelto invisible para este chequeo la desincronización de identidad del 20 de agosto, que era un bug de FUENTE, no de regla.
+
+**Cadencia:** diaria, disparador propio, instalado media hora después del digest. Corre en ESTE proyecto de Apps Script (no GitHub Actions, no un host Node aparte) porque es el único lugar donde vive el código DESPLEGADO del digest — cualquier otro lugar compararía repo contra repo y no vería la clase de bug que fue D-133 (un archivo desplegado viejo, no un repo viejo).
+
+**Silencio si coincide, con un latido semanal:** un disparador muerto y un sistema sano producen el mismo silencio, así que los lunes siempre mandan una línea sin importar el resultado.
+
+**Un chequeo que no puede correr nunca es silencioso:** no poder bajar el HTML, no poder leer una hoja, o que el código del tablero tire una excepción son todos aviso, nunca silencio.
+
+**Divergencia reconocida, no un botón de silencio.** `ackDrift(razon)` guarda las líneas de diferencia de HOY y una razón; se niega sin razón. Las corridas futuras restan exactamente esas líneas — cualquier divergencia NUEVA sigue sonando aunque haya una reconocida. El reconocimiento se limpia solo en cuanto esas líneas dejan de aparecer (y avisa que lo hizo), y vence a los 7 días de todos modos.
+
+**Costura de reloj agregada a `Digest.gs` en el mismo pase:** las funciones de reglas ahora leen `dNow_()` en vez de `Date.now()` directo (10 lugares). `D_NOW_OVERRIDE` es 0 en operación normal, así que `sendDailyDigest()` y `previewDigest()` se comportan exactamente igual que antes. Sin esta costura, una tarea justo sobre un umbral podía leer severidad distinta en cada lado por los segundos de diferencia entre los dos cálculos — una falsa alarma que habría entrenado al equipo a ignorar el chequeo.
+
+**Nada de esto toca el registro de eventos.** El registro es la memoria de los clientes, no el diario de salud del sistema. El estado del chequeo vive en Script Properties únicamente.
+
+**Validado en producción, las 8 pruebas:** (1) coincide en silencio, streak sube; (2) diferencia real provocada a propósito → Slack con el diff línea por línea, formato `owner|flow|rung|severity|cliente`; (3) `ackDrift("razón")` la calla; (4) una corrida más con el reconocimiento activo → sigue en OK, sin Slack; (5) deshecho el cambio de prueba → el reconocimiento se limpia SOLO y manda su propio aviso de Slack confirmándolo; (6) streak sigue subiendo después de la limpieza; (7) `installDriftCheckTrigger()` instaló el disparador diario, confirmado en la pantalla de Activadores junto al de `sendDailyDigest`.
+
+**Archivos:** `DriftCheck.gs` (nuevo, en el mismo proyecto de Apps Script que `Digest.gs` y `Code.gs`), `Digest.gs` (costura de reloj, aditiva, sin cambio de comportamiento fuera de la simulación).
+
+---
+
 ## 2026-08-20 — El digest reconocía solo a los clientes activos
 
 **El bug, encontrado corriendo la comparación de huellas, no reportado por nadie.** Después de resincronizar el archivo desplegado, `Alerts.fingerprint(TDApp.state)` devolvió vacío y el digest devolvió una tarea: `Resolve the identity for jpaige031108@gmail.com`. Es Jennifer Dickey, la tarjeta con chip "former". `dReadRoster_` leía solo la pestaña Roster, que es una vista filtrada a clientes ACTIVOS 1:1. El registro de eventos es permanente y el Roster no, así que todo cliente que termina su contrato desaparece de ahí mientras sus eventos siguen vivos. `identity.js` siempre leyó las dos fuentes y su propio encabezado dice por qué: resolver solo contra el Roster convierte a cada cliente pasado en un falso "no identificado" y entierra los reales.
