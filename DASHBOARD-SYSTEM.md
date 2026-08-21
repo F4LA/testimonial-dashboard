@@ -1,7 +1,7 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-20**
-**Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is written but NOT wired. Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
+**Last updated: 2026-08-21**
+**Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is live on a daily trigger (D-104), and a daily drift check compares it against the real dashboard (§10.5b). Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
 Describes how the Testimonial Dashboard actually works: its architecture, every module, every rule, and the reasons behind them. This is not a one-off handover — it is the canonical reference, kept current with every change.
@@ -359,9 +359,10 @@ dashboard/
 ├── alerts.js           ← THE RULES: state → owned, thresholded tasks
 ├── queue-view.js       ← the per-person action queue
 └── renderer.js         ← shell, nav, actor picker, routing, foundation view
-apps-script/            ← EXACTLY TWO FILES, both the dashboard's own project
+apps-script/            ← THREE FILES, all the dashboard's own project
 ├── Code.gs             ← Web App proxy + one-time setupPhase1()
-└── Digest.gs           ← daily per-owner Slack digest
+├── Digest.gs           ← daily per-owner Slack digest
+└── DriftCheck.gs       ← daily board↔digest fingerprint check (§10.5b)
 context/                ← build spec + data reference (inputs, not runtime)
 ```
 
@@ -372,7 +373,7 @@ Routes are hash-based, re-rendering from state already in memory (no refetch):
 
 ### ⚠️ The collection engine's code is NOT in this repo
 
-`apps-script/` holds **only** the two files above, and both belong to the **dashboard's own** standalone Apps Script project — the write proxy and the daily digest.
+`apps-script/` holds **only** the three files above, and all three belong to the **dashboard's own** standalone Apps Script project — the write proxy, the daily digest, and the daily drift check.
 
 The collection engine is a **different Apps Script project**, and its code is versioned in **`F4LA/testimonial-system`, folder `engine/`**. Touch it from *that* repo's Claude Code session, never from this one.
 
@@ -820,11 +821,11 @@ The draw emits tasks and a draw-due state, so `Digest.gs` is no longer raffle-bl
 
 ---
 
-## 10.5 Daily Slack digest (`apps-script/Digest.gs`) — written, NOT wired
+## 10.5 Daily Slack digest (`apps-script/Digest.gs`) — live on a daily trigger
 
 Spec §5: one DM per person per day with only their own items, plus production items in the existing testimonial-management channel. Same mechanism as the monthly nomination scheduler — an Apps Script time trigger through the existing bot.
 
-**Nothing is installed and nothing sends** until `installDigestTrigger()` is run deliberately. `previewDigest()` returns exactly what would be posted and sends nothing; run it first, every time.
+**The trigger is installed and this sends for real** — one time-based `sendDailyDigest`, 8–9am `America/Guayaquil`, installed by `installDigestTrigger()` on 2026-08-10 (D-104). `previewDigest()` returns exactly what would be posted and sends nothing; run it first, every time, before changing anything that reaches Slack.
 
 ### What goes out
 
@@ -868,6 +869,59 @@ Verified equal across 18 scenarios covering every rung of every flow: the outrea
 Until the v2 port, `dTasks_` assigned *"fill the coach form"* to the **coach**, and `dResolveDm_` resolved their address from roster column J — so the first live digest would have cold-messaged a coach a task the system is designed never to give them (D-094). The v1 rules also disagreed with the queue everywhere else: one task per production **piece** instead of one per client, no overdue tier, no escalations.
 
 Both halves of the coach bug are now closed, independently: `dTasks_` reroutes any non-person owner to Gaby and records it in `problems`, and `dResolveDm_` refuses to resolve anyone outside `D_PEOPLE`. Structural, not conventional — a future edit would have to defeat both.
+
+---
+
+## 10.5b The daily drift check (`apps-script/DriftCheck.gs`)
+
+The fingerprint comparison of §10.5 proves the two implementations agree — but it only proved it **when a person ran it**. Both August desyncs had been live for days and were found only because someone happened to be working nearby. `checkDrift()` removes that step.
+
+### How it gets the dashboard's fingerprint with no browser
+
+It does **not** reimplement the rules a third time. It runs the dashboard's own code:
+
+1. **Downloads `index.html` from the live site** (cache-busted) and reads the `<script src="dashboard/…">` tags to get the module list, **in load order**. `app.js` is excluded by that prefix — it is the UI bootstrap and needs a real DOM.
+2. **Downloads each module and evaluates it into one sandbox object** — `new Function('window', src)` called with the sandbox as both `this` and `window`, so each module's `root.X = …` lands **inside the box**. Never the Apps Script global scope, which `Code.gs` and `Digest.gs` already share and which a stray `clasp push` polluted once before (D-127 in the engine repo).
+3. **Reads the sheets through this project's OAuth token**, not the API key in `config.js` — that key is origin-restricted to `f4la.github.io` and 403s from anywhere else (§2.4). Same ids, same tabs, same `valueRenderOption` per source, taken from the sandbox's own `TDConfig.SHEETS`.
+4. **Parses with the dashboard's own parsers** (`SheetsReader._parseEventLog` and friends, exposed for offline testing), folds with `StateBuilder.build`, and calls **`Alerts.fingerprint(state)`** — the dashboard's function, not a copy of it.
+
+> ⚠️ **The live site, never the repo.** Comparing the repo against the deployed digest would reopen, on the other side, exactly the gap this check exists to close: D-133 was a stale *deployed* file, not a stale repo. For the same reason the check runs **in this Apps Script project** — the only place the deployed digest code exists. GitHub Actions or a Node host would compare repo against repo and see nothing.
+
+> ⚠️ **It deliberately does NOT share a sheet read with `Digest.gs`.** Each side reads the world its own way, exactly as production does. Sharing the read would have made the identity desync invisible here, because that was a **source** bug, not a rule bug.
+
+**The module list is derived, never hand-written.** When the reviews view and the podcast / client-of-the-month view ship, their new files appear in `index.html`'s own script tags and are picked up with no edit to `DriftCheck.gs` — which is why this landed before those views exist.
+
+### The clock seam
+
+`Digest.gs`'s rule functions read **`dNow_()`** instead of `Date.now()` (10 call sites). `D_NOW_OVERRIDE` is `0` in normal operation, so `dNow_()` *is* `Date.now()` and `sendDailyDigest()` / `previewDigest()` behave exactly as before. The check freezes both sides to the same instant — `D_NOW_OVERRIDE` here, `TDClock._set` in the sandbox — before comparing.
+
+**Why it matters:** without it, a task sitting right on a threshold could read a different severity on each side purely from the seconds between the two calculations. A false alarm on day one is how a check earns its way into being ignored.
+
+The `Date.now()` calls left in `dSelfCheckPostponement_` are deliberate: that self-check builds synthetic data *relative to real now* (a month far ahead is still waiting, a month past has resumed) and must not be frozen.
+
+### Cadence, and what it says
+
+| Outcome | What happens |
+|---|---|
+| the two match | **silence**, streak incremented |
+| the two match **and it is Monday** | one line: *"matched N days running"* — the heartbeat |
+| they disagree | Slack DM to Bernardo with the diff line by line, split into *only the dashboard shows these* / *only the digest shows these*, in `owner\|flow\|rung\|severity\|client` form |
+| the check itself fails | Slack DM saying so |
+
+Daily, its own trigger, half an hour after the digest's. Installed deliberately by `installDriftCheckTrigger()`, which installs nothing if it is already there and deletes nothing.
+
+**A dead trigger and a healthy system produce the same silence** — hence the Monday heartbeat. And **a check that cannot run is never silent**: a failed download, an unreadable sheet, or the dashboard code throwing are all reported, because a check that fails green is worse than no check.
+
+### Acknowledged drift is not a mute button
+
+While a change is deliberately landing on one side first, `ackDrift("reason")` snapshots **today's diff lines** plus a reason, and refuses without one.
+
+- Future runs subtract **exactly those lines** — any **new** divergence still alarms while one is acknowledged.
+- It **clears itself** the moment those lines stop appearing, and sends its own Slack line saying it did.
+- It **expires after 7 days** regardless, quoting the reason back, so nothing can go quiet forever by accident.
+- `clearDrift()` drops it by hand.
+
+**Nothing here touches the Event Log.** That log is client memory, not the system's health diary; all state lives in Script Properties under `DRIFT_*` keys.
 
 ---
 

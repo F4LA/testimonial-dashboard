@@ -13,6 +13,28 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-21 — El código del chequeo de deriva llega al repo (el hueco de ayer, cerrado)
+
+Cierra el hueco señalado al registrar D-135 (entrada de abajo, mismo día): esa entrada describía `DriftCheck.gs` y la costura de reloj de `Digest.gs` como hechos, pero **el código solo existía en el editor de Apps Script**. `apps-script/` tenía dos archivos y `Digest.gs` no tenía ni `dNow_()` ni `D_NOW_OVERRIDE`. Ahora el repo coincide con lo desplegado.
+
+**Es la misma clase de hueco que D-133, al revés.** Ahí el archivo desplegado estaba viejo respecto del repo; acá el repo estaba viejo respecto de lo desplegado. Las dos veces la causa fue la misma: código pegado a mano en el editor sin bajar al repo, mientras `CLAUDE.md` dice que `apps-script/` es la fuente de verdad de lo que corre. Vale registrarlo como patrón, no como accidente: **el editor de Apps Script no es un lugar donde el código pueda quedarse.**
+
+**Verificado por diff antes de commitear, que era la condición.** El `Digest.gs` adjunto difiere del que ya estaba en **exactamente** dos piezas y nada más: 16 líneas nuevas (el bloque de la costura, `var D_NOW_OVERRIDE = 0` y `function dNow_()`), y 10 llamadas `Date.now()` → `dNow_()`, todas dentro de funciones de reglas — `dCurrentMonth_`, el fold, `dRung_`, y las de outreach, video, pulls manuales, contenido y aprobación. 1984 + 16 = 2000 líneas. El resto del archivo, byte a byte igual.
+
+Los `Date.now()` que **quedan** están todos en `dSelfCheckPostponement_`, y quedan a propósito: ese self-check construye datos sintéticos *relativos al ahora real* (un mes muy adelante sigue esperando, uno pasado ya volvió) y congelarlo lo rompería.
+
+**Comprobado que la costura es transparente:** con `D_NOW_OVERRIDE` en 0, `dNow_()` devuelve `Date.now()` con delta 0 ms, así que `sendDailyDigest()` y `previewDigest()` se comportan igual que antes; con override puesto, congela. Los cuatro bancos de pruebas (identidad, paridad con ex-cliente, D-120, mensajes del sorteo) siguen en verde.
+
+**Comprobadas también las dependencias de `DriftCheck.gs` contra el repo**, en vez de asumirlas: `dFingerprint_`, `dResolveDm_`, `dSlack_`, `DIGEST_TZ` y `D_NOW_OVERRIDE` existen los cinco en `Digest.gs`; los cinco parsers que usa (`_parseEventLog`, `_parseRoster`, `_parseMastersheet`, `_parseSettings`, `_parseSignal`) están expuestos por `sheets-reader.js`; y `index.html` carga 17 módulos `dashboard/*.js`, el número que el encabezado del archivo dice haber verificado sin DOM.
+
+**Sin redespliegue.** El digest y el chequeo corren por disparador de tiempo, que toma el código actual del proyecto; el `PROXY_VERSION` de `Code.gs` no se tocó, y es lo único acá que depende de un deployment.
+
+**`DASHBOARD-SYSTEM.md` documenta ahora el chequeo** (§10.5b nueva: cómo obtiene la huella del tablero sin navegador, por qué el sitio en vivo y no el repo, por qué no comparte la lectura de hojas, la costura de reloj, la cadencia con su latido de los lunes, y el reconocimiento con vencimiento). El bloque de File layout pasa de dos archivos a tres.
+
+**Corregido de paso, porque el documento vivo tiene que decir la verdad:** el encabezado y §10.5 seguían afirmando que el digest estaba *escrito pero NO conectado*. Es falso desde D-104, que instaló su disparador el 10 de agosto — y la propia validación de D-135 lo confirma al describir el activador nuevo "junto al de `sendDailyDigest`". Un documento vivo que le miente al lector sobre si algo manda mensajes de verdad es peor que uno incompleto.
+
+---
+
 ## 2026-08-21 — selfCheck() promovido a trabajo recurrente (DriftCheck.gs)
 
 **Por qué.** Las dos desincronizaciones del 20 de agosto (identidad y aplazamiento) llevaban días vivas y solo se encontraron porque alguien estaba tocando otra cosa. `selfCheck()` ya probaba que el tablero y el digest coinciden, pero solo cuando una persona lo corría a mano. Este archivo elimina ese paso.

@@ -113,6 +113,22 @@ var DIGEST = {
 var DIGEST_TZ = 'America/Guayaquil';
 var TZ_OFFSET_MIN = -300;   // Ecuador is UTC-5 year round, no DST
 
+/* ===================== Clock seam (drift check) =====================
+ * Every rule that asks "how long has this been waiting?" reads dNow_()
+ * rather than Date.now() directly. One seam, so the daily drift check can
+ * freeze this file and the dashboard's TDClock to the exact same instant
+ * before comparing fingerprints — without it, a task sitting right on a
+ * threshold could read a different severity on each side, a false alarm
+ * that would train the team to ignore the check.
+ *
+ * D_NOW_OVERRIDE is 0 in normal operation, so dNow_() returns Date.now()
+ * and sendDailyDigest() / previewDigest() behave exactly as before this
+ * change. Only the drift check ever sets it, and always resets it to 0
+ * in a finally block.
+ * ======================================================================= */
+var D_NOW_OVERRIDE = 0;
+function dNow_() { return D_NOW_OVERRIDE || Date.now(); }
+
 /* ===================== Stage vocabulary (mirror) ===================== */
 
 var D_ENGINE_FANOUT = [
@@ -303,7 +319,7 @@ function dMonthSetting_(raw) {
   return s;
 }
 
-function dCurrentMonth_() { return dMonthKey_(Date.now()); }
+function dCurrentMonth_() { return dMonthKey_(dNow_()); }
 
 function dMonthIsPast_(key) { return dIsMonthKey_(key) && key < dCurrentMonth_(); }
 
@@ -757,7 +773,7 @@ function dFold_() {
     var rComp = dCompliance_(dRaffleConditions_(L, inputs.video, arrived));
 
     /* --- postponement (mirror of state-builder.js step 5b, D-120) --- */
-    var postp = dPostponement_(L, repeats, rMonth.month, Date.now());
+    var postp = dPostponement_(L, repeats, rMonth.month, dNow_());
     // The age counter stops while they wait, and restarts from the resume date
     // rather than from the event they were paused on — same rule as the board.
     var ageAt = postp.pending ? postp.resumeDate : at;
@@ -766,7 +782,7 @@ function dFold_() {
       email: evs[0].email, cycle: evs[0].cycle, key: k,
       stage: stage || 'indeterminate', at: at,
       hours: (postp.pending && postp.waiting) ? NaN
-             : (isFinite(ageAt) ? (Date.now() - ageAt) / 36e5 : NaN),
+             : (isFinite(ageAt) ? (dNow_() - ageAt) / 36e5 : NaN),
       inputs: inputs, arrived: arrived, pieces: pieces, piecesDone: done,
       complete: !!L(D_S.COMPLETE),
       /* --- what the v2 flows read (mirror of state-builder.js) --- */
@@ -829,7 +845,7 @@ function dRung_(o) {
   if (!o.anchor || !isFinite(o.anchor.ts)) return null;
   var wait = o.hours * D_HOUR;
   var due = o.anchor.ts + wait;
-  var now = Date.now();
+  var now = dNow_();
   if (now < due) return null;
   return {
     flow: o.flow, rung: o.rung, owner: o.owner,
@@ -866,7 +882,7 @@ function dFlowOutreach_(t, s, h, v) {
       title: notMsg
         ? 'Check if ' + v.coach + ' messaged ' + v.Client + ', then do the outreach.'
         : 'Do outreach to ' + v.Client + ' (if the coach already messaged them).',
-      detail: notMsg ? 'Waiting on the coach since ' + Math.round((Date.now() - lastNot.ts) / D_HOUR) + 'h ago.' : ''
+      detail: notMsg ? 'Waiting on the coach since ' + Math.round((dNow_() - lastNot.ts) / D_HOUR) + 'h ago.' : ''
     });
   }
 
@@ -922,7 +938,7 @@ function dFlowVideo_(t, s, h, v) {
   // An explicit snooze is the ONLY thing that postpones this task now. A plain
   // check used to re-anchor the clock and take the whole card away for a full
   // interval, follow-up step included (mirror of flows.js).
-  if (snoozed && (Date.now() - snoozed.ts) < s.videoSnoozeDays * D_DAY) return null;
+  if (snoozed && (dNow_() - snoozed.ts) < s.videoSnoozeDays * D_DAY) return null;
 
   if (fu >= 2) {
     return dRung_({
@@ -1012,7 +1028,7 @@ function dFlowManualPulls_(t, s, h, v) {
   // Age counts from entry into Collecting — when the task could first exist.
   var anchor = t.collectingEntry;
   var stale = anchor && isFinite(anchor.ts) &&
-              (Date.now() - anchor.ts) / D_HOUR > s.collectingStaleHours;
+              (dNow_() - anchor.ts) / D_HOUR > s.collectingStaleHours;
 
   return {
     flow: 'manualPulls', rung: stale ? 'stale' : 'pending', owner: 'Gaby',
@@ -1020,7 +1036,7 @@ function dFlowManualPulls_(t, s, h, v) {
       ? v.Client + ' has been waiting ' + Math.round(s.collectingStaleHours / 24) + ' days on your ' + missing.join(' and ') + '.'
       : 'Pull ' + missing.join(' and ') + ' for ' + v.Client + '.',
     detail: 'Needed before production can start.',
-    waitedHours: anchor ? (Date.now() - anchor.ts) / D_HOUR : NaN,
+    waitedHours: anchor ? (dNow_() - anchor.ts) / D_HOUR : NaN,
     sev: stale ? 'overdue' : 'reminder'
   };
 }
@@ -1039,7 +1055,7 @@ function dFlowContent_(t, s, h, v) {
   var pendingText = pending.length + ' of ' + D_PIECES.length + ' pieces still open';
 
   var chased = h.last(D_S.PRODUCTION_CHASED);
-  var elapsedDays = (Date.now() - day0.ts) / D_DAY;
+  var elapsedDays = (dNow_() - day0.ts) / D_DAY;
 
   if (elapsedDays >= s.contentEscalateDays) {
     var r = dRung_({
@@ -1084,7 +1100,7 @@ function dFlowApproval_(t, s, h, v) {
     });
   }
 
-  var waited = (Date.now() - (nudged ? nudged.ts : ready.ts)) / D_HOUR;
+  var waited = (dNow_() - (nudged ? nudged.ts : ready.ts)) / D_HOUR;
   if (waited >= s.approvalEscalateHours) {
     return dRung_({
       flow: 'approval', rung: 'escalate', owner: 'Gaby',
