@@ -13,6 +13,14 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-08-21 — Este repo pasa a ser la fuente de `apps-script/*.gs`, mismo tratamiento que el motor (D-127 en `testimonial-system`)
+
+Se agrega `.clasp.json` en la raíz (Script ID `1q6spjnmFYXeq4UmUvncqBoO6Q0mhZ7ieQkJAIEoxRGK6O9BnOXZgWcpj` — proyecto standalone del tablero, cuenta `membership@strongstandard.com`), y las exclusiones de credenciales de clasp al `.gitignore`. La dirección queda invertida: el repo es la fuente para `Code.gs`, `Digest.gs` y `DriftCheck.gs`; se edita acá y se empuja con `clasp push`; el editor de Apps Script se usa solo para correr funciones y leer logs. Regla escrita en `CLAUDE.md`, junto a la sección que ya explicaba que `apps-script/` no incluye el motor.
+
+**Prueba de deriva antes de establecer la dirección, como corresponde.** El primer `clasp pull` no dio vacío: `Code.gs` coincidió byte a byte, pero `Digest.gs` y `DriftCheck.gs` mostraron una única diferencia en cada uno — un salto de línea final ausente en la versión que trae `clasp pull`, no una edición de contenido (mismo número de líneas de código, mismo texto). Ninguna edición en vivo real desde la última sincronización. Se descartó la versión traída por `clasp pull` para esos dos archivos (el repo ya tenía la forma correcta) y se corrió `clasp push` para que el editor coincida con el repo, no al revés. Un segundo `clasp pull` + `git diff` después del push salió completamente vacío, incluido `appsscript.json`, que no estaba versionado y se agrega tal cual lo trajo `clasp pull` (mismo precedente que el manifiesto del motor en D-127).
+
+---
+
 ## 2026-08-21 — El código del chequeo de deriva llega al repo (el hueco de ayer, cerrado)
 
 Cierra el hueco señalado al registrar D-135 (entrada de abajo, mismo día): esa entrada describía `DriftCheck.gs` y la costura de reloj de `Digest.gs` como hechos, pero **el código solo existía en el editor de Apps Script**. `apps-script/` tenía dos archivos y `Digest.gs` no tenía ni `dNow_()` ni `D_NOW_OVERRIDE`. Ahora el repo coincide con lo desplegado.

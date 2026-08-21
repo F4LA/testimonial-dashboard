@@ -14,6 +14,8 @@ It lives in **`F4LA/testimonial-system`, folder `engine/`**, and is touched from
 
 Four engine patches used to sit in `apps-script/`. They were removed on 2026-08-19 — three were already folded into `engine/Code.gs`, and one had drifted **behind** the live engine, so pasting it would have reverted working code. They are kept for their reasoning in `engine/history/` in the other repo, each under a "do not paste" header. If a task calls for an engine change, do it there.
 
+**Regla de dirección (igual que el motor, D-127 en `testimonial-system`): este repo es la fuente para `apps-script/*.gs`.** Se edita acá y se empuja con `clasp push`. El editor de Apps Script se usa solo para correr funciones y leer logs de ejecución. Antes de proponer cualquier cambio a `Code.gs`, `Digest.gs` o `DriftCheck.gs`, correr `clasp pull` y confirmar `git diff` vacío — si no sale vacío, alguien editó en vivo y hay que resolver esa deriva primero.
+
 Always start by confirming you read the context before proposing any action.
 
 ---
