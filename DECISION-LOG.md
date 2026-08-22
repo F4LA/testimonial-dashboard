@@ -21,6 +21,44 @@ Se agrega `.clasp.json` en la raíz (Script ID `1q6spjnmFYXeq4UmUvncqBoO6Q0mhZ7i
 
 ---
 
+## 2026-08-21 — La comprobación de direcciones existía y nadie podía correrla
+
+Un defecto de fondo con tres caras, todas verificadas en el editor en vivo antes de tocar código, no supuestas. **Sin redespliegue:** el digest corre por disparador de tiempo y toma el código actual del proyecto; `Code.gs` y `PROXY_VERSION` no se tocaron.
+
+**Dato nuevo y bueno que salió de la investigación:** el disparador `sendDailyDigest` **sí está instalado**. `installDigestTrigger` corrió empezando y terminando en el mismo segundo (7:33:51 → 7:33:51), y cero segundos prueba que salió por el retorno temprano — imposible si hubiera hecho las cuatro llamadas de red de la comprobación.
+
+**Una corrección a la premisa, porque importa para saber qué estaba roto.** `dSelfCheckSend_()` **no era** código inalcanzable: `selfCheck()` ya lo llamaba (y `previewDigest()` también). Lo que pasaba es que **reportaba solo por excepción**: con las cuatro direcciones sanas devuelve la lista vacía, se funde en `problems`, y la salida dice `invariants: ok` sin una sola línea sobre direcciones. Así que no se podía saber si la comprobación había corrido, ni si las cuatro direcciones se habían verificado alguna vez. Inalcanzable de verdad estaba **solo por la ruta de `installDigestTrigger`**, que es la peor de las dos: es la función cuyo trabajo entero es validar antes de conectar nada.
+
+### Los tres arreglos
+
+**1 · `selfCheck()` imprime el reporte, limpio o no.** Sección nueva `--- Slack addresses (asked Slack, read-only) ---` con una línea por persona: `resolves` / `MISSING` / `ERROR`, el correo, y el id de Slack cuando resuelve. Es la diferencia entre una comprobación que existe y una que se puede leer.
+
+**2 · En `installDigestTrigger`, comprobar primero y decidir después.** El retorno temprano estaba antes de la comprobación, así que desde el 10 de agosto — el estado permanente de un sistema ya instalado, justo cuando más querrías poder re-verificar — la función veía el disparador, devolvía "Already installed. Nothing done." y nunca llegaba a mirar nada. Ahora las comprobaciones van arriba y la decisión de instalar abajo; re-correrla sobre un sistema instalado re-verifica la configuración y **dice qué encontró** en vez de un "Nothing done" mudo que se leía igual con la config sana que sin haberla mirado nunca.
+
+**3 · El encabezado decía "NOTHING IS WIRED YET. No trigger is installed".** Falso desde el 10 de agosto, once días. Corregido a lo que es: está conectado, manda de verdad, disparador diario entre 08:00 y 09:00. Un comentario equivocado sobre si un sistema está encendido invita exactamente a la edición que nadie haría sabiendo que mañana a la mañana salen DMs reales.
+
+**Refactor mínimo para que 1 y 2 no dupliquen llamadas:** `dAddressReport_()` construye el reporte una vez y `dSelfCheckSend_(report)` lo acepta; quien no se lo pase se lo construye solo. Una corrida de `selfCheck()` pregunta a Slack una vez por persona, no dos.
+
+### Alcance, para que quede claro en el registro
+
+**No había ningún riesgo activo.** Las cuatro direcciones se verificaron a mano contra Slack el 21 de agosto y las cuatro resuelven a la persona correcta: Gaby `support@strongstandard.com`, Miguel Salas `miguelsa45@gmail.com`, Joey `drjoey@fit4lifeacademy.health`, Bernardo `bernardo@strongstandard.com`. El envío del lunes no estaba en peligro. Lo que se arregló es que **el sistema pueda comprobarlo solo**, en vez de depender de que alguien lo haga a mano.
+
+### Barrido del mismo patrón, que era parte del pedido
+
+Buscadas otras comprobaciones detrás de un retorno temprano o sin invocar, en `Digest.gs` y `DriftCheck.gs`. **No hay otra igual.** `dSelfCheckRaffle_`, `dSelfCheckPostponement_` y `dSelfCheckIdentity_` cuelgan de `selfCheck()` y sí se alcanzan. `installDriftCheckTrigger` tiene el mismo retorno temprano pero **no esconde nada detrás**: solo instala. Las tres funciones que nada invoca localmente — `checkIdentityFor`, `clearDrift`, `installDriftCheckTrigger` — son puntos de entrada manuales por diseño, de la misma clase que `previewDigest` y `ackDrift`. Lo único anotado, sin arreglar: `DriftCheck.gs` no tiene un autochequeo propio; su equivalente es que avisa por Slack cuando no puede correr, que cubre el caso importante.
+
+### Verificación
+
+**La huella no se movió** y la comparación se corrió para confirmarlo, no se razonó: nada tocó cómo se derivan las tareas. Los seis bancos verdes.
+
+Banco nuevo con 16 comprobaciones, incluida la que importa: con el disparador ya instalado, `installDigestTrigger` ahora **sí** consulta las cuatro direcciones (antes: cero), no instala un segundo disparador, y con una dirección rota se niega aunque ya esté instalado.
+
+**Un fallo de mi propia prueba, que vale registrar** porque es la segunda vez hoy que el andamio miente: la primera versión reemplazaba `dResolveDm_` entera, y con eso borré su guarda `D_PEOPLE` — la prueba reportó una llamada de red extra por `SomeCoachName` y una excepción, dos cosas que el código desplegado no puede producir. Corregido interceptando `dSlack_`, la capa de red, para que corra el `dResolveDm_` real. Con eso queda además probado que un coach cuesta **cero** llamadas a Slack. **Regla que me llevo: sustituir la función bajo prueba invalida la prueba; hay que sustituir su frontera.**
+
+**`selfCheck()` con la sección nueva no se corrió en el proyecto real** — no hay API executable y Chrome no está conectado desde esta sesión. Queda para correr en el editor.
+
+---
+
 ## 2026-08-21 — El conteo de piezas NO estaba al revés: el "0 of 5" lo inventó un stub de prueba
 
 **Sin cambio de código.** Se investigó como defecto de producto y no lo es. Lo que sí cambió: el ejemplo equivocado que quedó escrito en `DASHBOARD-SYSTEM.md`.

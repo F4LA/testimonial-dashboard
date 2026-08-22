@@ -4,9 +4,17 @@
  * Belongs to the DASHBOARD's standalone Apps Script project, alongside
  * Code.gs. It is deliberately NOT in the collection engine's project.
  *
- * ⚠️ NOTHING IS WIRED YET. No trigger is installed and no message is sent
- * until `installDigestTrigger()` is run deliberately. Run `previewDigest()`
- * first — it returns exactly what would be posted, and sends nothing.
+ * ⚠️ THIS IS WIRED AND SENDS FOR REAL. A daily `sendDailyDigest` trigger has
+ * been installed since 10 Aug 2026 (D-104), firing between 08:00 and 09:00 in
+ * the project timezone. Confirmed live in the editor on 21 Aug.
+ *
+ * This header said "NOTHING IS WIRED YET. No trigger is installed" for eleven
+ * days after that stopped being true. A comment that is wrong about whether a
+ * system is switched on is worse than no comment: it invites exactly the edit
+ * somebody would never make if they knew real DMs went out tomorrow morning.
+ *
+ * So: `previewDigest()` FIRST, every time, before touching anything that reaches
+ * Slack. It returns exactly what would be posted and sends nothing.
  *
  * WHAT GOES OUT, each morning:
  *   1. One DM per person (Gaby / Miguel / Joey / Bernardo) with THEIR tasks.
@@ -1578,7 +1586,12 @@ function previewDigest() {
  * this is about the send path, not the rules — and the send path is the one
  * that can put a message in front of the wrong person.
  */
-function dSelfCheckSend_() {
+/**
+ * @param {Array} [report]  a `dAddressReport_()` already built by the caller.
+ *                          Passing it keeps one run to a single set of Slack
+ *                          lookups; omitting it makes this self-contained.
+ */
+function dSelfCheckSend_(report) {
   var problems = [];
 
   Object.keys(DIGEST.PEOPLE_SLACK).forEach(function (name) {
@@ -1606,28 +1619,49 @@ function dSelfCheckSend_() {
     problems.push('dResolveDm_ resolved a non-person — coaches must never be reachable (D-094)');
   }
 
-  /* ⚠️ DOES THE ADDRESS ACTUALLY RESOLVE? Until now this only checked that the
-   * map had a non-empty string, so an address that was present but WRONG passed
-   * without a sound — and the first anyone would learn of it is the morning that
-   * person first has a task. Ask Slack, per person.
-   *
-   * Read-only (`users.lookupByEmail`) and failure-tolerant: an unreachable Slack
-   * or a missing token is reported as a problem, never thrown, so selfCheck()
-   * and previewDigest() still finish and print everything else. */
-  D_PEOPLE.forEach(function (name) {
-    var email = DIGEST.PEOPLE_SLACK[name];
-    if (!email) return;                       // already reported above
-    try {
-      if (!dResolveDm_(name)) {
-        problems.push(name + "'s address (" + email + ') does not resolve to a Slack user — ' +
-                      'their DM will not send');
-      }
-    } catch (e) {
-      problems.push('could not verify ' + name + "'s address (" + email + '): ' + e.message);
+  /* ⚠️ DOES THE ADDRESS ACTUALLY RESOLVE? See dAddressReport_. Passed in when
+   * the caller already built the report, so one run never asks Slack twice. */
+  (report || dAddressReport_()).forEach(function (r) {
+    if (!r.email) return;                     // already reported above
+    if (r.error) {
+      problems.push('could not verify ' + r.name + "'s address (" + r.email + '): ' + r.error);
+    } else if (!r.resolved) {
+      problems.push(r.name + "'s address (" + r.email + ') does not resolve to a Slack user — ' +
+                    'their DM will not send');
     }
   });
 
   return problems;
+}
+
+/**
+ * Ask Slack, per person, whether their configured address resolves to a real
+ * user. Read-only (`users.lookupByEmail`) and failure-tolerant: an unreachable
+ * Slack or a missing token comes back as `error` on that row rather than
+ * throwing, so every caller still finishes and prints the rest.
+ *
+ * ⚠️ WHY THIS IS ITS OWN FUNCTION AND GETS PRINTED. Checking only that the map
+ * held a non-empty string let an address that was present but WRONG pass in
+ * silence, and the first anyone would learn of it is the morning that person
+ * first has a task. Worse, reporting only by EXCEPTION means a healthy run says
+ * nothing at all — so nobody can tell the check ran, or that the four addresses
+ * were ever verified. selfCheck() prints this report whether it is clean or not,
+ * which is the difference between a check that exists and a check you can read.
+ */
+function dAddressReport_() {
+  return D_PEOPLE.map(function (name) {
+    var email = DIGEST.PEOPLE_SLACK[name] || '';
+    var row = { name: name, email: email, resolved: false, error: '', id: '' };
+    if (!email) { row.error = 'no address configured'; return row; }
+    try {
+      var id = dResolveDm_(name);
+      row.resolved = !!id;
+      row.id = id || '';
+    } catch (e) {
+      row.error = e.message;
+    }
+    return row;
+  });
 }
 
 /**
@@ -2059,8 +2093,13 @@ function selfCheck() {
   var tasks = r.tasks;
   function n(pred) { return tasks.filter(pred).length; }
 
+  // Built ONCE and both printed below and fed to dSelfCheckSend_, so a single
+  // selfCheck() run asks Slack about each person exactly once.
+  var addresses = dAddressReport_();
+
   var problems = dSelfCheckRaffle_().concat(dSelfCheckPostponement_())
-                   .concat(dSelfCheckIdentity_()).concat(dSelfCheckSend_()).concat(r.problems);
+                   .concat(dSelfCheckIdentity_()).concat(dSelfCheckSend_(addresses))
+                   .concat(r.problems);
 
   // Every owner must be a dashboard user. After dTasks_ reroutes, this can only
   // fail if the reroute itself broke — which is exactly when it matters.
@@ -2125,6 +2164,17 @@ function selfCheck() {
                }).join('; ') + ')' : ''),
              'resume tasks: ' + n(function (t) { return t.flow === 'postponement'; }),
              '',
+             /* ⚠️ PRINTED WHETHER CLEAN OR NOT. This check reported only by
+              * exception before, so a healthy run said nothing and nobody could
+              * tell whether the four addresses had ever been verified against
+              * Slack — or that the check had run at all. */
+             '--- Slack addresses (asked Slack, read-only) ---',
+             addresses.map(function (a) {
+               return '  ' + (a.error ? 'ERROR   ' : (a.resolved ? 'resolves' : 'MISSING ')) +
+                      '  ' + a.name + ' <' + (a.email || 'no address') + '>' +
+                      (a.error ? '  — ' + a.error : (a.resolved ? '  → ' + a.id : ''));
+             }).join('\n'),
+             '',
              'invariants: ' + (problems.length ? 'FAILED' : 'ok'),
              problems.length ? '  - ' + problems.join('\n  - ') : '',
              '',
@@ -2145,23 +2195,41 @@ function selfCheck() {
 
 /** Installs ONLY the digest trigger. Deletes nothing. Run deliberately. */
 function installDigestTrigger() {
+  /* ⚠️ CHECK FIRST, THEN DECIDE WHETHER TO INSTALL.
+   *
+   * The early return used to come FIRST, so from the moment the trigger existed
+   * (10 Aug) this function validated nothing: it saw the trigger, returned
+   * "Already installed", and never reached the address check below. That is the
+   * permanent state of an installed system — the one state where you would most
+   * want to be able to re-verify — and it made the check unreachable by the one
+   * route whose whole job is to validate before wiring anything up. Proven in
+   * the live editor: a run that started and finished in the same second, which
+   * is impossible if it had made four network calls. */
+  if (!DIGEST.PEOPLE_SLACK.Gaby) throw new Error('PEOPLE_SLACK.Gaby is empty — fill DIGEST first.');
+
+  var addresses = dAddressReport_();
+  var problems = dSelfCheckSend_(addresses);
+  if (problems.length) {
+    throw new Error('Refusing to install — fix these first:\n  - ' + problems.join('\n  - '));
+  }
+
+  var ok = addresses.filter(function (a) { return a.resolved; })
+    .map(function (a) { return a.name; }).join(', ');
+
   var already = ScriptApp.getProjectTriggers().filter(function (t) {
     return t.getHandlerFunction() === 'sendDailyDigest';
   });
-  if (already.length) return 'Already installed. Nothing done.';
-
-  // CONTENT_CHANNEL_ID is deliberately NOT required any more — the digest posts
-  // to no channel at all. What IS required is a way to reach Gaby, who owns
-  // most of the queue: without it the daily run would do nothing and look fine.
-  if (!DIGEST.PEOPLE_SLACK.Gaby) throw new Error('PEOPLE_SLACK.Gaby is empty — fill DIGEST first.');
-
-  var problems = dSelfCheckSend_();
-  if (problems.length) {
-    throw new Error('Refusing to install — fix these first:\n  - ' + problems.join('\n  - '));
+  if (already.length) {
+    // Nothing to install, but the checks above just ran — so say what they found
+    // instead of the old bare "Nothing done", which read the same whether the
+    // config was healthy or had never been looked at.
+    return 'Already installed — nothing to do. Config re-checked and clean; ' +
+           'addresses resolve for: ' + ok + '.';
   }
 
   ScriptApp.newTrigger('sendDailyDigest').timeBased().atHour(DIGEST.HOUR).everyDays(1).create();
   return 'Installed sendDailyDigest daily between ' + DIGEST.HOUR + ':00 and ' +
          (DIGEST.HOUR + 1) + ':00, project timezone. DMs only, no channel. ' +
+         'Addresses resolve for: ' + ok + '. ' +
          'Team summary also goes to: ' + DIGEST.SUMMARY_TO.join(', ') + '.';
 }

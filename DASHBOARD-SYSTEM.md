@@ -875,7 +875,16 @@ The block reuses each task's own `title` verbatim. There is no second wording fo
 >
 > Each person's send is now isolated in its own `try`. A failure costs that person their message and nobody else theirs, and it is reported in the summary's **Problems this run** block — which is also why the summary now goes out on an otherwise quiet day if something failed. Verified by simulating exactly that shape: with Miguel throwing, Gaby, Joey and both summaries still went.
 
-**The self-check now asks Slack whether each address actually resolves.** It used to check only that the map held a non-empty string, so an address that was *present but wrong* passed in silence — and the first anyone would learn of it is the morning that person first has a task. The live lookup is read-only and failure-tolerant: an unreachable Slack is reported as a problem, never thrown, so `selfCheck()` and `previewDigest()` still finish.
+**The self-check asks Slack whether each address actually resolves.** It used to check only that the map held a non-empty string, so an address that was *present but wrong* passed in silence — and the first anyone would learn of it is the morning that person first has a task. `dAddressReport_()` asks per person; the lookup is read-only and failure-tolerant, so an unreachable Slack lands as `error` on that row instead of throwing, and every caller still finishes. A coach costs **no** call at all: `dResolveDm_` returns null on the `D_PEOPLE` guard before Slack is reached.
+
+> ⚠️ **A check nobody can run is not a check.** That report is now printed by `selfCheck()` as its own section, clean or not:
+>
+> ```
+> --- Slack addresses (asked Slack, read-only) ---
+>   resolves  Gaby <support@strongstandard.com>  → U…
+> ```
+>
+> It used to speak only by exception, so a healthy run said nothing and there was no way to tell whether the four addresses had ever been verified — or that the check had run. And in `installDigestTrigger` it sat **after** the `Already installed` early return, so from 10 Aug onward the one function whose job is to validate before wiring skipped validation entirely. Both fixed: the checks run first and the install decision comes after, so re-running it on an installed system re-verifies the config and says what it found instead of a bare "Nothing done". The report is built **once** per run and passed down, so one `selfCheck()` asks Slack about each person exactly once.
 
 Still required before it can run: the `SLACK_BOT_TOKEN` script property in the **dashboard's** Apps Script project (properties are per project — the engine's token lives in the engine's project).
 
