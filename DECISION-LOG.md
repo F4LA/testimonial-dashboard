@@ -21,6 +21,29 @@ Se agrega `.clasp.json` en la raíz (Script ID `1q6spjnmFYXeq4UmUvncqBoO6Q0mhZ7i
 
 ---
 
+## 2026-08-21 — El conteo de piezas NO estaba al revés: el "0 of 5" lo inventó un stub de prueba
+
+**Sin cambio de código.** Se investigó como defecto de producto y no lo es. Lo que sí cambió: el ejemplo equivocado que quedó escrito en `DASHBOARD-SYSTEM.md`.
+
+**El síntoma y de dónde salió de verdad.** La vista previa que se reprodujo localmente para el 25 de agosto imprimía *"How's the content for Jennifer Dickey coming along? 0 of 5 pieces still open."* con las cinco piezas sin empezar. El número estaba mal, pero **no venía del código**: en el stub de esa reproducción (`preview.js`, fuera del repo) el título y el detalle de cada tarea estaban **escritos a mano**, no generados. Ese "0 of 5" es texto que se tecleó en el andamio de prueba, no salida del motor de tareas.
+
+**Ni (a) ni (b).** Los dos lados calculan el pendiente igual y bien:
+
+    var pending = PIECES.filter(function (p) { return !t.pieces[p.key].done; });
+    var pendingText = pending.length + ' of ' + PIECES.length + ' pieces still open';
+
+`pending` son las piezas **no** hechas, así que con cero hechas da 5. Comprobado corriendo el código real desplegado contra los datos reales de Jennifer (0/5 hechas, las cinco `open`): el escalón de Miguel del 25 de agosto dice **"5 of 5 pieces still open."**, y el de Gaby a los 7 días, **"5 of 5 pieces still open. 8 days since production started."** Idéntico en `flows.js` y en `dFlowContent_`, así que el texto no está duplicado en dos versiones: hay una sola cadena, calculada una vez por lado, y las dos coinciden.
+
+**Barridos los demás textos con conteo**, por si el error de sentido estaba en más de uno. Son tres de cara al equipo, los tres correctos: las piezas pendientes; *"N eligible entries"* del sorteo (`eligible.length`); y *"a thank-you for each of the N other entries"* (`losers.length`, ya cubierto por su propio banco: 6 participantes → 5 agradecimientos). El *"asked to move month N times"* del aplazamiento también sale bien. El resto de los `.length` del digest son diagnósticos de self-check, no copia.
+
+**La huella no se movió** — nada tocó cómo se deriva el escalón ni la severidad, y la comparación se corrió igual para confirmarlo, no se razonó. Los cinco bancos siguen verdes.
+
+**Lo que sí se corrigió:** `DASHBOARD-SYSTEM.md` §10.5b traía ese mismo "0 of 5" en su bloque de ejemplo. Es un documento vivo, así que se corrige en su lugar (D-101): el ejemplo ahora muestra el `title` solo, que es lo que el bloque de novedades realmente imprime, y se aclara aparte que los conteos viven en el `detail` y que `pending` son las **no** hechas. Un ejemplo en el documento vivo con un número que el código no puede emitir es exactamente el tipo de cosa que manda a alguien a buscar un bug inexistente — que es lo que pasó acá.
+
+**La lección, que vale más que el no-defecto:** una reproducción local solo prueba algo si el contenido lo **genera el código**. Escribir la copia a mano dentro del stub convirtió la reproducción en una fabricación con aspecto de salida real. El stub quedó corregido para tomar el texto verbatim de lo que produce el flujo real, con un comentario diciendo por qué.
+
+---
+
 ## 2026-08-21 — El resumen diario marca lo nuevo, y un fallo de envío deja de tumbar al resto
 
 Dos cosas en el mismo pase, las dos sobre `Digest.gs`. Sin redespliegue: el digest corre por disparador de tiempo y toma el código actual del proyecto; `Code.gs` y `PROXY_VERSION` no se tocaron.

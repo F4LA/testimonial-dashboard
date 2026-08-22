@@ -846,8 +846,10 @@ Their own list carries a block **above** the normal one, and only when there is 
 
 ```
 🆕 New since yesterday (1)
-1. How's the content for Heather Spillers coming along? 0 of 5 pieces still open.
+1. How's the content for Heather Spillers coming along?
 ```
+
+The line is the task's own `title`, verbatim. (The counts a task carries live in its `detail`, e.g. *"5 of 5 pieces still open."* — `pending` is the pieces **not** done, so a client with nothing started reads **5** of 5, not 0.)
 
 Below it, the message is unchanged — same tiers, same dashboard link. **A day with nothing new looks exactly as it did before this existed.** Joey and Bernardo are deliberately out: their tasks are escalations, already rare enough that novelty adds nothing.
 
