@@ -29,6 +29,40 @@
     return (v == null) ? "" : String(v).trim();
   }
 
+  /**
+   * The scheduled week (column G) as an ISO Monday string, tolerating BOTH
+   * forms the cell can hold.
+   *
+   * The proxy sends "2026-09-14" as text, but appendRow lets Sheets coerce it
+   * into a real date, and the Event Log is read with UNFORMATTED_VALUE
+   * (required for the timestamp in column C), so a coerced cell comes back as
+   * a date serial. Reading only the string form made every assigned week
+   * invisible: the row was written and confirmed, then silently ignored by the
+   * fold, so the card sat in "awaiting a week" forever. This is the same
+   * tolerance parseEventDate already applies to column C, for the same reason.
+   *
+   * A date-only serial is a whole number, so NO timezone offset is applied
+   * here: the calendar date is taken as written, never converted to an instant.
+   */
+  function weekKey(v) {
+    if (typeof v === "number" && isFinite(v)) return serialToIsoDate(v);
+    var t = String(v == null ? "" : v).trim();
+    if (!t) return "";
+    var m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + "-" + m[2] + "-" + m[3];
+    var n = Number(t);
+    if (isFinite(n) && n > 20000 && n < 90000) return serialToIsoDate(n);
+    return t;                                     // unrecognized: hand it on
+  }
+
+  /** Sheets serial epoch is 1899-12-30; 25569 is the Unix epoch in that scale. */
+  function serialToIsoDate(serial) {
+    var ms = Math.round((serial - 25569) * 86400000);
+    if (!isFinite(ms)) return "";
+    var d = new Date(ms);
+    return isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : "";
+  }
+
   function buildUrl(sheetId, tab, range, renderMode) {
     var target = tab + (range ? "!" + range : "");
     return BASE + "/" + sheetId + "/values/" + encodeURIComponent(target) +
@@ -93,7 +127,7 @@
         // Phase 4 · column G. Structured on purpose: the buffer is the one
         // computation duplicated in Digest.gs, so it must not depend on
         // parsing a token out of free text.
-        week:       cell(r, C.WEEK),
+        week:       weekKey((r && r.length > C.WEEK) ? r[C.WEEK] : ""),
         rowNumber:  i + 1
       });
     }

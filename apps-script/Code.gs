@@ -32,8 +32,10 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    5 — + "Raffle — month moved" (D-100, the raffle draw chunk)
  *    6 — + "Collection — video check snoozed" (the two-state video check)
  *    7 — + the two postponement strings ("yes, but next month", D-120)
- *    8 — + requestFanout writes the cycle into Signal column F (D-131) */
-var PROXY_VERSION = 8;
+ *    8 — + requestFanout writes the cycle into Signal column F (D-131)
+ *    9 — the Week cell is forced to plain text after the append, so Sheets
+ *        can no longer coerce the ISO Monday into a date */
+var PROXY_VERSION = 9;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -222,6 +224,20 @@ function appendEvent_(b) {
     var row = [email, stage, stamp, text, 'MANUAL - ' + actor, cycle];
     if (week) row.push(week);
     sh.appendRow(row);
+
+    // appendRow behaves like typing: Sheets coerced "2026-09-14" into a real
+    // DATE, and the dashboard reads the Event Log with UNFORMATTED_VALUE (it
+    // must, for the timestamp in column C), so a coerced cell came back as a
+    // serial and every assigned week was invisible to the fold. Setting the
+    // cell's format to plain text and re-writing the same string keeps it a
+    // string. The reader tolerates both forms, so the rows written before this
+    // fix stay valid; this only stops new ones from being born crooked.
+    if (week) {
+      var weekCell = sh.getRange(sh.getLastRow(), 7);
+      weekCell.setNumberFormat('@');
+      weekCell.setValue(week);
+    }
+
     SpreadsheetApp.flush();
 
     return { ok: true, message: 'Appended.', row: sh.getLastRow(), stamp: stamp, timezone: tz, week: week || null };
