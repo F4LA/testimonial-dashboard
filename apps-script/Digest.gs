@@ -823,14 +823,27 @@ function dFold_() {
     });
     function L(s) { return last[dNorm_(s)] || null; }
 
-    function inputState(stageList, classify) {
+    function inputState(stageList, classify, key, label) {
       var best = null;
       stageList.forEach(function (s) {
         var e = L(s);
         if (e && (!best || e.ts > best.ts)) best = e;
       });
       if (!best) return { state: 'missing', ev: null };
-      return { state: classify(String(best.event || '').trim()), ev: best };
+      var state = classify(String(best.event || '').trim());
+      // Mirror of state-builder.js foldOne: a resolution event clears a flag
+      // when it is newer than the flagged row AND names this input by key or
+      // label. Without this, a client Gaby has already resolved through the
+      // "Resolve" button stays flagged here forever — this file never read
+      // "Collection — manual review resolved" at all before this fix, even
+      // though D_S.RESOLVED already existed for other callers to use.
+      if (state === 'flagged' && resolution && resolution.ts >= best.ts) {
+        var txt = String(resolution.event || '').toLowerCase();
+        if (txt.indexOf(key.toLowerCase()) >= 0 || txt.indexOf(label.toLowerCase()) >= 0) {
+          return { state: 'received', ev: resolution };
+        }
+      }
+      return { state: state, ev: best };
     }
     function plain(t)  { return /^Flag:/.test(t) ? 'flagged' : 'received'; }
     function video(t)  { return /^Flag:/.test(t) ? 'flagged'
@@ -840,13 +853,14 @@ function dFold_() {
     function loom(t)   { return /^Flag:/.test(t) || /^FAILED/.test(t) ? 'flagged'
                          : (/^Could not download the transcript/.test(t) || /,\s*\d+\s+failed/.test(t) ? 'partial' : 'received'); }
 
+    var resolution = L(D_S.RESOLVED);
     var inputs = {
-      video:     inputState([D_S.ENGINE_VIDEO, D_S.VIDEO_UPLOADED], video),
-      coachForm: inputState([D_S.COACH_FORM], plain),
-      everfit:   inputState([D_S.EVERFIT], plain),
-      photos:    inputState([D_S.PHOTOS], plain),
-      meet:      inputState(['Collection — Meet'], meet),
-      loom:      inputState(['Collection — Loom'], loom)
+      video:     inputState([D_S.ENGINE_VIDEO, D_S.VIDEO_UPLOADED], video, 'video', 'Client video'),
+      coachForm: inputState([D_S.COACH_FORM], plain, 'coachForm', 'Coach form'),
+      everfit:   inputState([D_S.EVERFIT], plain, 'everfit', 'Everfit data'),
+      photos:    inputState([D_S.PHOTOS], plain, 'photos', 'Photos'),
+      meet:      inputState(['Collection — Meet'], meet, 'meet', 'Meet notes'),
+      loom:      inputState(['Collection — Loom'], loom, 'loom', 'Looms')
     };
     function arrived(s) { return s === 'received' || s === 'partial'; }
 

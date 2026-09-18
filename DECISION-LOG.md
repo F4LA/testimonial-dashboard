@@ -13,6 +13,14 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-18 — Digest.gs nunca leía la resolución manual de un flag (`Collection — manual review resolved`)
+
+Encontrado comparando la huella de `selfCheck()` contra `Alerts.fingerprint(TDApp.state)` en el navegador — la práctica que D-088 pide después de cualquier cambio a ambos lados. El digest mostraba 3 tareas de revisión (`review/flag-loom` para Lisa Lanzilotti y Randy Hopkins, `review/flag-meet` para Christine Demetriou) que el tablero real ya no mostraba — alguien ya las resolvió con el botón "Resolve" del tablero, que escribe `Collection — manual review resolved`. `dFold_()` clasificaba cada input (meet/loom/etc.) solo con la última fila de esa etapa, sin mirar nunca si una resolución más nueva la limpiaba — a diferencia de `state-builder.js` `foldOne`, que sí lee `Collection — manual review resolved` y, si es más nueva que la fila marcada y su texto nombra el input (por key o por label), la reclasifica de "flagged" a "received". `D_S.RESOLVED` ya existía como constante en este archivo, pero nunca se usaba en ningún lado — quedó a medio cablear.
+
+Arreglo: `inputState()` ahora recibe `key` y `label` de cada input y aplica exactamente la misma comparación de texto que el frontend (`txt.indexOf(key) >= 0 || txt.indexOf(label) >= 0`, todo en minúsculas) contra una `resolution` calculada una sola vez por testimonio (`L(D_S.RESOLVED)`), igual que `state-builder.js`. No relacionado con Flow 10 — es un bug preexistente que solo salió a la luz ahora porque era la primera vez que se corrían `selfCheck()` y `Alerts.fingerprint()` juntos en esta sesión. Pendiente: repetir la comparación de huellas tras pegar este fix en el editor y confirmar que ya coinciden exactas.
+
+---
+
 ## 2026-09-18 — Flow 10 no leía la semana asignada: `dFold_()` nunca traía la columna G al objeto evento
 
 Encontrado corriendo `previewDigest()` en vivo por primera vez tras subir Flow 10: Jennifer Dickey y Heather Spillers, que según D-142 YA tenían semana asignada, salieron con la tarea "Assign a week... it's approved and ready" — la que solo debería disparar cuando NO hay semana. Causa: `dFold_()` armaba cada evento con `email, stage, ts, event, source, cycle, row`, pero nunca leía `r[6]` (columna G, Week). `dAssignedWeek_` busca `e.week` en el último evento `Schedule — week assigned`, y como ese campo nunca existía, siempre volvía `""` — todo cliente aprobado se veía como recién aprobado sin semana, sin importar lo que dijera la hoja. El mismo hueco rompía `dBuffer_`: con `byWeek` siempre vacío, el buffer salía "0/4, semana de Sep 14 vacía" sin importar cuántas semanas hubiera realmente ocupadas.
