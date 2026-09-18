@@ -302,6 +302,8 @@
       // Phase 4
       bufferTargetWeeks:             4,
       activeMonth:                   "",
+      // Flow 10 · schedule + publish
+      scheduleOverdueDays:           3,
       // The coach form link used in the coach-form follow-up template.
       coachFormUrl:                  "https://docs.google.com/forms/d/e/1FAIpQLSdSrP7-crZYsQ8DjDBgJUc06ojFRzz1pipduj3MUJue5jinwQ/viewform"
     },

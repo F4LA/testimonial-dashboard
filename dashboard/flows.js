@@ -635,6 +635,50 @@
   }
 
   /* ======================================================================
+   * FLOW 10 · Schedule + publish — Gaby assigns the week, Miguel schedules
+   * and publishes. Closes the gap found live 8 Sep: approval alone generated
+   * no next task, so an approved testimonial could sit forever with a week
+   * assigned and nobody holding the "publish it" task.
+   * ====================================================================== */
+
+  function flowSchedule(t, s, h, v) {
+    if (!t.approved || t.published) return null;
+
+    var week = root.CalendarFold.assignedWeek(t);
+
+    if (!week) {
+      return rung({
+        flow: "schedule", rung: "assign", owner: "Gaby", hours: 0,
+        anchor: h.last(S.APPROVAL_APPROVED),
+        title: "Assign a week for " + v.Client + "'s content. It's approved and ready.",
+        detail: "A week is proposed on the calendar — accept it or pick another."
+      });
+    }
+
+    var weekMs = root.CalendarFold.keyToMs(week);
+    var overdueMs = weekMs + (s.scheduleOverdueDays || 3) * DAY;
+
+    if (root.TDClock.now() >= overdueMs) {
+      return rung({
+        flow: "schedule", rung: "overdue", owner: "Bernardo",
+        hours: 0, anchor: { ts: overdueMs },
+        title: "Nudge Miguel — " + v.Client + "'s content (" + root.CalendarFold.label(week) +
+               ") still isn't marked published."
+      });
+    }
+
+    var c = root.CalendarFold.checks(t);
+    return rung({
+      flow: "schedule", rung: "prep", owner: "Miguel", hours: 0,
+      anchor: h.last(S.SCHEDULE_WEEK_ASSIGNED),
+      title: "Schedule and publish " + v.Client + "'s content — " + root.CalendarFold.label(week) + ".",
+      detail: c.both
+        ? "Both scheduling checks are marked. Mark it published once it's live."
+        : "Mark Instagram and email scheduled on the calendar, then mark it published once it's live."
+    });
+  }
+
+  /* ======================================================================
    * FLOW 8+9 · Raffle post-draw — Miguel and Gaby, in PARALLEL
    *
    * Two flows, not one ladder with two rungs, and that is the whole point:
@@ -768,7 +812,7 @@
   }
 
   var FLOWS = [flowOutreach, flowVideo, flowCoachForm, flowManualPulls, flowContent, flowApproval,
-               flowRaffleMonth, flowRaffleMessages];
+               flowSchedule, flowRaffleMonth, flowRaffleMessages];
 
   /**
    * Evaluate every flow for one testimonial. At most one task per flow.

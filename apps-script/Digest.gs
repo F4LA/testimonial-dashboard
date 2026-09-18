@@ -261,6 +261,70 @@ function dMonthKey_(ms) {
 
 function dIsMonthKey_(s) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(s || '')); }
 
+/** Mirror of calendar.js week arithmetic (`mondayKey`/`keyToMs`/`addWeeks`/
+ *  `currentWeek`/`label`) — same sheet timezone, same helpers, Flow 10. */
+var D_WEEK_MS = 7 * 24 * 60 * 60 * 1000;   // D_DAY is defined lower in this file — no forward ref
+
+function dWeekMondayKey_(ms) {
+  var d = new Date(ms + TZ_OFFSET_MIN * 60000);
+  var day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
+  return d.toISOString().slice(0, 10);
+}
+function dWeekKeyToMs_(key) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return NaN;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3]) - TZ_OFFSET_MIN * 60000;
+}
+function dWeekAddWeeks_(key, n) { return dWeekMondayKey_(dWeekKeyToMs_(key) + n * D_WEEK_MS); }
+function dCurrentWeek_() { return dWeekMondayKey_(dNow_()); }
+var D_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function dWeekLabel_(key) {
+  var ms = dWeekKeyToMs_(key);
+  if (!isFinite(ms)) return key;
+  var d = new Date(ms + TZ_OFFSET_MIN * 60000);
+  return 'week of ' + D_MON[d.getUTCMonth()] + ' ' + d.getUTCDate();
+}
+function dAssignedWeek_(t) {
+  var e = t.lastByStage[dNorm_(D_S.WEEK_ASSIGNED)];
+  return (e && e.week) ? e.week : '';
+}
+function dWeekChecks_(t) {
+  var post  = !!t.lastByStage[dNorm_(D_S.SCHED_POST)];
+  var email = !!t.lastByStage[dNorm_(D_S.SCHED_EMAIL)];
+  return { instagram: post, email: email, both: post && email };
+}
+
+/** Mirror of calendar.js build()'s buffer half only — the digest doesn't
+ *  need the queue/proposal shapes, just the health number + the gap. */
+function dBuffer_(list, settings) {
+  var target = settings.bufferTargetWeeks || 4;
+  var today = dCurrentWeek_();
+  var byWeek = {};
+
+  list.forEach(function (t) {
+    if (t.terminal) return;
+    var week = dAssignedWeek_(t);
+    if (!week) return;
+    byWeek[week] = {
+      complete: t.allPiecesDone,
+      published: t.published,
+      name: (t.identity && t.identity.clientName) || t.email
+    };
+  });
+
+  var cursor = today, guard = 0;
+  while (byWeek[cursor] && byWeek[cursor].published && guard++ < 260) cursor = dWeekAddWeeks_(cursor, 1);
+  var count = 0;
+  while (byWeek[cursor] && byWeek[cursor].complete && guard++ < 260) {
+    count++;
+    cursor = dWeekAddWeeks_(cursor, 1);
+  }
+
+  return { weeks: count, target: target, healthy: count >= target,
+           gapWeek: cursor, gap: byWeek[cursor] || null };
+}
+
 /**
  * Mirror of raffle.js `firstBusinessDay` (D-120). The instant the first
  * Monday-to-Friday day of `key` STARTS in the sheet's timezone. Holidays are
@@ -509,6 +573,7 @@ function dReadSettings_() {
     contentEscalateDays:           7,
     approvalEscalateHours:         48,
     bufferTargetWeeks:             4,
+    scheduleOverdueDays:           3,
     activeMonth:                   '',
     coachFormUrl:                  ''
   };
@@ -809,6 +874,7 @@ function dFold_() {
       allPiecesDone: done === D_PIECES.length,
       collectionComplete: !!L(D_S.COMPLETE),
       approved: !!L(D_S.APPROVED),
+      published: !!L(D_S.PUBLISHED),
       terminal: stage === 'closed',
       raffle: rComp,
       raffleMonth: rMonth.month,
@@ -1134,6 +1200,46 @@ function dFlowApproval_(t, s, h, v) {
   });
 }
 
+/* ---------- FLOW 10 · Schedule + publish — Gaby assigns the week, Miguel
+ * schedules and publishes. Mirror of dashboard/flows.js `flowSchedule`. ---------- */
+
+function dFlowSchedule_(t, s, h, v) {
+  if (!t.approved || t.published) return null;
+
+  var week = dAssignedWeek_(t);
+
+  if (!week) {
+    return dRung_({
+      flow: 'schedule', rung: 'assign', owner: 'Gaby', hours: 0,
+      anchor: h.last(D_S.APPROVED),
+      title: "Assign a week for " + v.Client + "'s content. It's approved and ready.",
+      detail: 'A week is proposed on the calendar — accept it or pick another.'
+    });
+  }
+
+  var weekMs = dWeekKeyToMs_(week);
+  var overdueMs = weekMs + (s.scheduleOverdueDays || 3) * D_DAY;
+
+  if (dNow_() >= overdueMs) {
+    return dRung_({
+      flow: 'schedule', rung: 'overdue', owner: 'Bernardo',
+      hours: 0, anchor: { ts: overdueMs },
+      title: 'Nudge Miguel — ' + v.Client + "'s content (" + dWeekLabel_(week) +
+             ") still isn't marked published."
+    });
+  }
+
+  var c = dWeekChecks_(t);
+  return dRung_({
+    flow: 'schedule', rung: 'prep', owner: 'Miguel', hours: 0,
+    anchor: h.last(D_S.WEEK_ASSIGNED),
+    title: 'Schedule and publish ' + v.Client + "'s content — " + dWeekLabel_(week) + '.',
+    detail: c.both
+      ? "Both scheduling checks are marked. Mark it published once it's live."
+      : "Mark Instagram and email scheduled on the calendar, then mark it published once it's live."
+  });
+}
+
 /* ---------- FLOW 8+9 · Raffle post-draw — PARALLEL, never chained (D-080) ---------- */
 
 function dFlowRaffleMonth_(t, s, h, v) {
@@ -1183,7 +1289,7 @@ function dFlowPostponed_(t, s, h, v) {
 }
 
 var D_FLOWS = [dFlowOutreach_, dFlowVideo_, dFlowCoachForm_, dFlowManualPulls_,
-               dFlowContent_, dFlowApproval_, dFlowRaffleMonth_, dFlowRaffleMessages_];
+               dFlowContent_, dFlowApproval_, dFlowSchedule_, dFlowRaffleMonth_, dFlowRaffleMessages_];
 
 /** Every flow for one testimonial. At most one task per flow. */
 function dEvaluate_(t, s, roster) {
@@ -1449,7 +1555,7 @@ function dRender_(owner, tasks, newTasks) {
  *                            Shown at the TOP: a message that quietly omits
  *                            somebody is the failure mode worth surfacing.
  */
-function dRenderSummary_(tasks, problems) {
+function dRenderSummary_(tasks, problems, buf) {
   var MARK = { overdue: ':rotating_light:', due: ':hourglass:',
                reminder: ':small_blue_diamond:', review: ':mag:' };
 
@@ -1468,6 +1574,12 @@ function dRenderSummary_(tasks, problems) {
   if (problems && problems.length) {
     L.push('', ':warning: *Problems this run*');
     problems.forEach(function (p) { L.push('• ' + p); });
+  }
+
+  if (buf && !buf.healthy) {
+    L.push('', ':rotating_light: *Buffer: ' + buf.weeks + '/' + buf.target + '* — first gap is ' +
+                 dWeekLabel_(buf.gapWeek) +
+                 (buf.gap ? ', blocked on ' + buf.gap.name + '.' : ', empty.'));
   }
 
   var byOwner = {};
@@ -1562,7 +1674,8 @@ function previewDigest() {
 
   if (tasks.length) {
     out.push('--- SECOND DM (team summary) to ' + DIGEST.SUMMARY_TO.join(' and ') + ' ---');
-    out.push(dRenderSummary_(tasks, r.problems), '');
+    var buf = dBuffer_(dFold_(), dReadSettings_());
+    out.push(dRenderSummary_(tasks, r.problems, buf), '');
   } else {
     out.push('(no open tasks, so nothing would be sent at all — not even the summary)', '');
   }
@@ -1735,7 +1848,8 @@ function sendDailyDigest() {
    * at all rather than a message saying there is nothing — unless a send failed,
    * which must be reported even on an otherwise quiet day. */
   if (tasks.length || failures.length) {
-    var summary = dRenderSummary_(tasks, r.problems.concat(failures));
+    var buf = dBuffer_(dFold_(), dReadSettings_());
+    var summary = dRenderSummary_(tasks, r.problems.concat(failures), buf);
     DIGEST.SUMMARY_TO.forEach(function (owner) {
       // Routed through the same resolver, so the summary can no more reach a
       // coach than a personal list can. Isolated for the same reason as above.

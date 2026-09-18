@@ -13,6 +13,16 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-18 — Flow 10: schedule + publish, cerrando el hueco post-aprobación (D-146 en testimonial-system)
+
+Después de que Joey aprueba, el sistema no generaba ninguna tarea siguiente — ni para que Gaby asigne semana, ni para que Miguel programe y publique, ni una alerta de buffer bajo (esta última era el fast-follow que D-096 dejó pendiente). Se agrega un flujo nuevo (flowSchedule / dFlowSchedule_) con dos peldaños — Gaby asigna semana, Miguel programa y publica — más una escalada a Bernardo si pasan `scheduleOverdueDays` (default 3) días desde la semana asignada sin publicar. Puramente aditivo: reutiliza eventos que ya existen (Schedule — week assigned/post/email, Publish — live), así que no hay cambio de PROXY_VERSION ni de ALLOWED_STAGES. También se agrega dBuffer_ en Digest.gs, mirror del cálculo de buffer de calendar.js, y una línea de alerta en el resumen de equipo cuando el buffer cae bajo la meta.
+
+**Dos bugs reales en el camino, corregidos antes de subir.** `D_WEEK_MS = 7 * D_DAY` se ejecutaba antes de que `D_DAY` existiera (declarado más abajo en el archivo) — Apps Script corre las declaraciones top-level en orden, así que salía `NaN`; se cambió a un literal (`7 * 24 * 60 * 60 * 1000`). Y `Digest.gs` nunca guardaba `t.published` en el fold — solo se usaba `D_S.PUBLISHED` para una etiqueta de stage, nunca como campo del testimonio — así que se agregó `published: !!L(D_S.PUBLISHED)` junto a `approved` en `dFold_`, o `dFlowSchedule_`/`dBuffer_` habrían leído `undefined` siempre.
+
+**Nota:** no se encontró en `DASHBOARD-SYSTEM.md` §12 ninguna línea sobre el fast-follow de D-096 (buffer bajo en el resumen diario) para borrar — no hay ninguna mención a D-096 en todo el repo. Se deja la sección 12 sin tocar; puede que ya se haya reescrito antes.
+
+---
+
 ## 2026-08-21 — Este repo pasa a ser la fuente de `apps-script/*.gs`, mismo tratamiento que el motor (D-127 en `testimonial-system`)
 
 Se agrega `.clasp.json` en la raíz (Script ID `1q6spjnmFYXeq4UmUvncqBoO6Q0mhZ7ieQkJAIEoxRGK6O9BnOXZgWcpj` — proyecto standalone del tablero, cuenta `membership@strongstandard.com`), y las exclusiones de credenciales de clasp al `.gitignore`. La dirección queda invertida: el repo es la fuente para `Code.gs`, `Digest.gs` y `DriftCheck.gs`; se edita acá y se empuja con `clasp push`; el editor de Apps Script se usa solo para correr funciones y leer logs. Regla escrita en `CLAUDE.md`, junto a la sección que ya explicaba que `apps-script/` no incluye el motor.

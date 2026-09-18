@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-08-21**
+**Last updated: 2026-09-18**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is live on a daily trigger (D-104), and a daily drift check compares it against the real dashboard (§10.5b). Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -463,9 +463,11 @@ Closed testimonials raise nothing.
 
 ---
 
-## 10.4b The seven flows (Task Model v2, D-090)
+## 10.4b The eight flows (Task Model v2, D-090)
 
 `dashboard/flows.js` holds the ladders as readable rules; `alerts.js` walks them. Each flow is a state machine: the clock re-anchors on every action, and the rung depends on which button was pressed and how many times. **A rung produces no task until its threshold passes** — before that, the client is simply inside their window.
+
+**Now eight, not seven (D-146).** Approval alone used to be the last rung in the numbered ladder — once Joey approved, the system generated no next task, so an approved testimonial could sit forever with a week assigned and nobody holding the "publish it" task. **Flow 10 (schedule + publish)** closes that gap: **Gaby** gets a task to assign a week once approved, **Miguel** gets a task to schedule and publish once a week is assigned, and it escalates to **Bernardo** if `scheduleOverdueDays` (default 3) pass with no publish. It reuses the existing `Schedule — week assigned/post scheduled/email scheduled` and `Publish — live` events, so there is no new stage vocabulary and no `PROXY_VERSION` bump.
 
 Three invariants, asserted rather than assumed:
 
@@ -481,6 +483,7 @@ Three invariants, asserted rather than assumed:
 | **5 Everfit + photos** | entry into **Collecting** | only exists once collection has started; passive reminder to **Gaby**, one soft escalation at `collectingStaleHours`, never leaves her |
 | **6 Content** | `Collection — complete` | +5d **Miguel** soft check-in → +7d **Gaby**. **Per client, never per piece.** |
 | **7 Approval** | all five pieces done | **Joey** → +48h **Gaby** tells Bernardo → **Bernardo** nudges Joey |
+| **10 Schedule + publish** | `Approval — approved` | **Gaby** assigns a week → **Miguel** schedules and publishes → **Bernardo** nudged if `scheduleOverdueDays` (default 3) pass unpublished |
 | **Postponed** | the resume date | the ONLY rung a postponed client can produce — see §10.4c |
 
 **Why Flow 3 anchors on the instructions email.** The fan-out shares the folder; the *instructions email* is the client being told what to do. Starting the 48h clock at the fan-out would chase a client who has not been asked yet.
