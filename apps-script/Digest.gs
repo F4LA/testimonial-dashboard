@@ -747,6 +747,39 @@ function dTs_(v) {
   return isFinite(p) ? p : NaN;
 }
 
+/**
+ * Mirror of sheets-reader.js `weekKey` — the scheduled week (Event Log column
+ * G) as an ISO Monday string, tolerating every form the cell can hold.
+ *
+ * A pre-D-142 row got its "2026-09-14" text coerced into a real Sheets DATE.
+ * The frontend reads the Event Log through the REST API with
+ * UNFORMATTED_VALUE, so a coerced cell comes back as a raw date SERIAL
+ * (weekKey's `typeof v === "number"` branch). Apps Script's own getValues()
+ * never does that for a date-formatted cell — it hands back a native JS Date
+ * object instead — so this mirror's Date branch reads the LOCAL date parts
+ * directly (Apps Script already places it at local midnight in the
+ * project's timezone), with no additional offset, exactly as
+ * serialToIsoDate applies none once it has a real calendar date. D-142's fix
+ * forces new rows to plain text, so most rows hit the string branch below;
+ * the Date branch only matters for rows written before that fix.
+ */
+function dWeekCellKey_(v) {
+  if (v instanceof Date) {
+    return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2) + '-' + ('0' + v.getDate()).slice(-2);
+  }
+  var t = String(v == null ? '' : v).trim();
+  if (!t) return '';
+  var m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  var n = Number(t);
+  if (isFinite(n) && n > 20000 && n < 90000) {
+    var ms = Math.round((n - 25569) * 86400000);
+    var d = new Date(ms);
+    return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+  }
+  return t;                                     // unrecognized: hand it on
+}
+
 function dFold_() {
   var sh = SpreadsheetApp.openById(DIGEST.SHEET_ID).getSheetByName(DIGEST.EVENT_TAB);
   var rows = sh.getDataRange().getValues();
@@ -761,7 +794,11 @@ function dFold_() {
     events.push({
       email: email, stage: stage, ts: dTs_(r[2]),
       event: String(r[3] || ''), source: String(r[4] || ''),
-      cycle: (cyc > 0 ? cyc : 1), row: i + 1
+      cycle: (cyc > 0 ? cyc : 1), row: i + 1,
+      // Phase 4 · column G. Missing on every row before the column existed;
+      // dWeekCellKey_ folds a blank/undefined cell to "", same as the
+      // frontend, so dAssignedWeek_ reads "no week" rather than crashing.
+      week: dWeekCellKey_(r[6])
     });
   }
   events.sort(function (a, b) {

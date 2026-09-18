@@ -13,6 +13,14 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-18 — Flow 10 no leía la semana asignada: `dFold_()` nunca traía la columna G al objeto evento
+
+Encontrado corriendo `previewDigest()` en vivo por primera vez tras subir Flow 10: Jennifer Dickey y Heather Spillers, que según D-142 YA tenían semana asignada, salieron con la tarea "Assign a week... it's approved and ready" — la que solo debería disparar cuando NO hay semana. Causa: `dFold_()` armaba cada evento con `email, stage, ts, event, source, cycle, row`, pero nunca leía `r[6]` (columna G, Week). `dAssignedWeek_` busca `e.week` en el último evento `Schedule — week assigned`, y como ese campo nunca existía, siempre volvía `""` — todo cliente aprobado se veía como recién aprobado sin semana, sin importar lo que dijera la hoja. El mismo hueco rompía `dBuffer_`: con `byWeek` siempre vacío, el buffer salía "0/4, semana de Sep 14 vacía" sin importar cuántas semanas hubiera realmente ocupadas.
+
+Arreglo: nueva `dWeekCellKey_`, mirror de `sheets-reader.js` `weekKey`, agregada al `events.push` de `dFold_()` como `week: dWeekCellKey_(r[6])`. Una diferencia real frente al frontend: la API REST de Sheets con `UNFORMATTED_VALUE` devuelve una celda de fecha coercionada (pre-D-142) como serial numérico, pero `SpreadsheetApp.getValues()` la devuelve como objeto `Date` nativo — así que `dWeekCellKey_` tiene una rama `instanceof Date` que lee los componentes de fecha locales directo, sin desplazamiento adicional (Apps Script ya la coloca en medianoche local), en vez de la rama de serial numérico que sí usa el frontend. Verificado con `node --check` tras el cambio. Pendiente: volver a correr `previewDigest()` con este fix pegado en el editor y confirmar que Jennifer/Heather ya NO salen en "assign a week" (o si de verdad no tienen semana, que sea por eso y no por este bug).
+
+---
+
 ## 2026-09-18 — Flow 10: schedule + publish, cerrando el hueco post-aprobación (D-146 en testimonial-system)
 
 Después de que Joey aprueba, el sistema no generaba ninguna tarea siguiente — ni para que Gaby asigne semana, ni para que Miguel programe y publique, ni una alerta de buffer bajo (esta última era el fast-follow que D-096 dejó pendiente). Se agrega un flujo nuevo (flowSchedule / dFlowSchedule_) con dos peldaños — Gaby asigna semana, Miguel programa y publica — más una escalada a Bernardo si pasan `scheduleOverdueDays` (default 3) días desde la semana asignada sin publicar. Puramente aditivo: reutiliza eventos que ya existen (Schedule — week assigned/post/email, Publish — live), así que no hay cambio de PROXY_VERSION ni de ALLOWED_STAGES. También se agrega dBuffer_ en Digest.gs, mirror del cálculo de buffer de calendar.js, y una línea de alerta en el resumen de equipo cuando el buffer cae bajo la meta.
