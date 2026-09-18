@@ -13,6 +13,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-18 — Flow 10, validado en vivo: la huella del digest y la del tablero coinciden exactas
+
+Cierre de los dos bugs de arriba (la columna Week nunca leída, la resolución manual de flags nunca leída). Con los dos parcheados y pegados en el editor de Apps Script en vivo, `selfCheck()` en el digest y `Alerts.fingerprint(TDApp.state)` en la consola del tablero produjeron la MISMA cadena, carácter por carácter — 4 líneas, mismo orden: `Bernardo|schedule|overdue|...` (Jennifer Dickey), `Gaby|approval|escalate|...`, `Gaby|manualPulls|complete|...`, `Miguel|schedule|prep|...` (Heather Spillers). `invariants: ok` también salió limpio (raffle, identidad, postponement, las cuatro direcciones de Slack resolviendo). Flow 10 queda validado de punta a punta: el tablero, el digest y el buffer están diciendo exactamente lo mismo. `sendDailyDigest()` no se corrió manualmente — el disparador ya instalado (D-104, 8–9am) lo manda solo la próxima mañana con este código.
+
+---
+
 ## 2026-09-18 — Digest.gs nunca leía la resolución manual de un flag (`Collection — manual review resolved`)
 
 Encontrado comparando la huella de `selfCheck()` contra `Alerts.fingerprint(TDApp.state)` en el navegador — la práctica que D-088 pide después de cualquier cambio a ambos lados. El digest mostraba 3 tareas de revisión (`review/flag-loom` para Lisa Lanzilotti y Randy Hopkins, `review/flag-meet` para Christine Demetriou) que el tablero real ya no mostraba — alguien ya las resolvió con el botón "Resolve" del tablero, que escribe `Collection — manual review resolved`. `dFold_()` clasificaba cada input (meet/loom/etc.) solo con la última fila de esa etapa, sin mirar nunca si una resolución más nueva la limpiaba — a diferencia de `state-builder.js` `foldOne`, que sí lee `Collection — manual review resolved` y, si es más nueva que la fila marcada y su texto nombra el input (por key o por label), la reclasifica de "flagged" a "received". `D_S.RESOLVED` ya existía como constante en este archivo, pero nunca se usaba en ningún lado — quedó a medio cablear.
