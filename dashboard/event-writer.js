@@ -176,7 +176,10 @@
     if (!isFinite(cycle) || cycle < 1) cycle = CFG.DEFAULT_CYCLE;
 
     if (!actor)  return Promise.reject(new Error("No person selected. Every action must be attributed — pick who is acting first."));
-    if (!email)  return Promise.reject(new Error("Missing client email."));
+    // The ONE stage that is not about a single client (Reviews view, D-066):
+    // Gaby's weekly Google review check. Named explicitly — see Code.gs,
+    // which enforces the same exception server-side.
+    if (!email && stage !== CFG.STAGES.REVIEW_VERIFICATION) return Promise.reject(new Error("Missing client email."));
     if (!stage)  return Promise.reject(new Error("Missing Stage."));
     if (!isAllowedStage(stage)) {
       return Promise.reject(new Error(

@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-09-18**
+**Last updated: 2026-09-20**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is live on a daily trigger (D-104), and a daily drift check compares it against the real dashboard (§10.5b). Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -821,6 +821,33 @@ The draw emits tasks and a draw-due state, so `Digest.gs` is no longer raffle-bl
 
 - The bridge writes no cycle, so a blank cycle folds to 1 and a client's **cycle-2** preferences submission would attach to cycle 1. Harmless at launch, wrong on the first re-nomination (D-100).
 - **A confirmed winner cannot be un-confirmed** (D-093, open). The log is append-only and no `Raffle — correction` string exists. Deliberately not solved here.
+
+---
+
+## 10.9b Reviews (`#/reviews`) — self-report vs. confirmation (Phase 5, D-066)
+
+Two signals, kept apart on purpose and never collapsed:
+
+1. **Self-report** — the client's own answer on the preferences form, read from the ENGINE-owned `Preferences — review self-reported`. This is the SAME event the raffle's review condition reads (`RaffleFold.PREFS.REVIEW`) — one event, two readers, not a second source of the same answer. This view never writes it.
+2. **Confirmation** — a human (Gaby) matches a real Google review to the client by name; Google gives no automatic match. Dashboard-owned, one of two mutually exclusive writes, last-write-wins so a decision can be flipped later:
+   - `Review — confirmed` — found and matched
+   - `Review — unmatched` — said yes, but could not find/match a review
+
+Confirmation is an **audit layer, never a raffle gate** (D-066): a genuine reviewer whose name cannot be matched must never lose raffle eligibility they already earned on the self-report alone. `raffle.js`'s own `selfCheck()` throws if the raffle condition ever reads `Review — self-reported` or `Review — confirmed`; `reviews.js` throws if `needsCheck` is ever true without a bare yes-and-no-audit shape.
+
+**`needsCheck`** = self-reported yes, no confirm/unmatched event yet, not terminal. That is Gaby's worklist — the "Waiting on you" table.
+
+**The weekly marker.** `Review — verification done` is a THIRD event, system-level (blank email, same bucket as the engine's own `Confirmation` rows) — Gaby ran her best-effort weekly check, whether or not anything changed. Without it, a quiet week where nothing was newly confirmed looks identical to a week nobody checked. **This is the one place in the whole dashboard that writes an event with no client email**, which needed a narrow, explicit exception in both `event-writer.js` and the proxy's `appendEvent_` (PROXY_VERSION 10) — named exactly, never "any blank email," so a future bug that drops an email by accident still gets caught.
+
+**The aggregate count** (D-066's "reality check") is a plain number Gaby types into the Settings tab (`reviewAggregateCount`) after checking the Google Business Profile total — there is no API integration; the view only displays it.
+
+**The weekly task** (`alerts.js reviewsTasks`, mirrored in `Digest.gs dReviewsTasks_`) is a SYSTEM-level task like the raffle draw — it belongs to Gaby's habit, not to any one client — firing when there is at least one pending client AND the last verification is older than `reviewVerificationDays` (default 7). One severity tier (`due`), no escalation chain: this is explicitly "best-effort" per D-066, not a ladder.
+
+| What | Frontend | `Digest.gs` |
+|---|---|---|
+| per-client status | `reviews.js statusFor` | `dReviewStatusFor_` |
+| the fold | `reviews.js build` | `dReviewsFold_` |
+| the weekly task | `alerts.js reviewsTasks` | `dReviewsTasks_` |
 
 ---
 

@@ -13,6 +13,16 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-20 — Vista de Reviews construida (Fase 5, D-066): self-report vs. confirmación, nunca la misma cosa
+
+Nueva vista `#/reviews`. Dos señales, separadas a propósito: el auto-reporte del cliente (leído del evento del motor `Preferences — review self-reported` — el MISMO que ya lee el raffle, no una segunda fuente), vs. la confirmación humana de que Gaby encontró y emparejó una review real en Google por nombre (`Review — confirmed` / `Review — unmatched`, dashboard-owned, último-en-escribir-gana). La confirmación es una capa de auditoría, nunca una compuerta del raffle — `raffle.js` y `reviews.js` tienen cada uno su propio `selfCheck()` que revienta si algo intenta mezclarlas. Se agrega `Review — verification done` como marcador semanal, de sistema (sin email, mismo bucket que las filas `Confirmation` del motor) — best-effort, sin cadena de escalada, tarea a nivel-sistema igual que el sorteo del raffle (`alerts.js reviewsTasks`, espejo en `Digest.gs dReviewsTasks_`).
+
+**Bug real encontrado a mitad de camino:** el marcador semanal no pertenece a un cliente — necesita escribir con email vacío — pero tanto `event-writer.js` como el proxy (`Code.gs`) rechazaban CUALQUIER escritura sin email, sin excepción. Se agregó una excepción angosta y nombrada explícitamente (solo para el string exacto `"Review — verification done"`, no "cualquier email vacío") en los dos lados. `PROXY_VERSION` sube a 10.
+
+Archivos nuevos: `dashboard/reviews.js`, `dashboard/reviews-view.js`. Tocados: `config.js` (settings `reviewVerificationDays`/`reviewAggregateCount`, `EXPECTED_PROXY_VERSION` → 10), `event-writer.js`, `renderer.js` (nav + ruta), `alerts.js` (`reviewsTasks`), `index.html` (scripts), `apps-script/Code.gs` (excepción de email vacío, `PROXY_VERSION` → 10), `apps-script/Digest.gs` (mirror completo: `dReviewStatusFor_`, `dLastSystemEvent_`, `dReviewsFold_`, `dReviewsTasks_`, `dSelfCheckReviews_`). Sintaxis validada con `node --check` en cada archivo; balance de tags de `index.html` verificado. Pendiente: pegar `Code.gs` y `Digest.gs` en sus editores de Apps Script en vivo, y comparar huellas tablero↔digest después.
+
+---
+
 ## 2026-09-18 — Flow 10, validado en vivo: la huella del digest y la del tablero coinciden exactas
 
 Cierre de los dos bugs de arriba (la columna Week nunca leída, la resolución manual de flags nunca leída). Con los dos parcheados y pegados en el editor de Apps Script en vivo, `selfCheck()` en el digest y `Alerts.fingerprint(TDApp.state)` en la consola del tablero produjeron la MISMA cadena, carácter por carácter — 4 líneas, mismo orden: `Bernardo|schedule|overdue|...` (Jennifer Dickey), `Gaby|approval|escalate|...`, `Gaby|manualPulls|complete|...`, `Miguel|schedule|prep|...` (Heather Spillers). `invariants: ok` también salió limpio (raffle, identidad, postponement, las cuatro direcciones de Slack resolviendo). Flow 10 queda validado de punta a punta: el tablero, el digest y el buffer están diciendo exactamente lo mismo. `sendDailyDigest()` no se corrió manualmente — el disparador ya instalado (D-104, 8–9am) lo manda solo la próxima mañana con este código.

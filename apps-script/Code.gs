@@ -34,8 +34,11 @@ var SIGNAL_TAB = 'Signal';   // the fan-out trigger layer; see requestFanout_
  *    7 — + the two postponement strings ("yes, but next month", D-120)
  *    8 — + requestFanout writes the cycle into Signal column F (D-131)
  *    9 — the Week cell is forced to plain text after the append, so Sheets
- *        can no longer coerce the ISO Monday into a date */
-var PROXY_VERSION = 9;
+ *        can no longer coerce the ISO Monday into a date
+ *   10 — "Review — verification done" may be written with a BLANK email —
+ *        the one dashboard-writable stage that is not about a single client
+ *        (Phase 5 Reviews view, D-066) */
+var PROXY_VERSION = 10;
 
 /** Columns A–E are LIVE. The collection engine writes them. Never touch
  *  their order or names. F (Cycle) is the single additive column. */
@@ -189,7 +192,13 @@ function appendEvent_(b) {
   var cycle = parseInt(b.cycle, 10);
   if (!(cycle > 0)) cycle = 1;
 
-  if (!email) return { ok: false, message: 'Missing email.' };
+  // The ONE stage that is not about a single client: Gaby's weekly Google
+  // review check (D-066) is a system-level marker, same bucket as the
+  // engine's own emailless "Confirmation" rows — never a testimonial event.
+  // Named explicitly rather than "any stage with no email", so a future bug
+  // that drops the email by accident still gets caught by this guard.
+  var ALLOWS_BLANK_EMAIL = stage === 'Review — verification done';
+  if (!email && !ALLOWS_BLANK_EMAIL) return { ok: false, message: 'Missing email.' };
   if (week && !isIsoMonday_(week)) {
     return { ok: false, message: 'Week must be an ISO Monday (e.g. 2026-08-17). Got: "' + week + '".' };
   }

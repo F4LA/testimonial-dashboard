@@ -120,6 +120,29 @@
   }
 
   /**
+   * The weekly Google-review check (Phase 5, D-066) — a SYSTEM-level task,
+   * like the raffle draw: it belongs to Gaby's own weekly habit, not to any
+   * one client waiting more than another. Best-effort by design (D-066), so
+   * one severity tier only — no escalation chain, unlike the ladders.
+   *
+   * ⚠️ Mirrored in `apps-script/Digest.gs` (D-088).
+   */
+  function reviewsTasks(state) {
+    if (!root.ReviewsFold) return [];
+    var rv = root.ReviewsFold.build(state.testimonials, state.settings, state.systemEvents, root.TDClock.now());
+    if (!rv.needsVerificationRun) return [];
+
+    return [{
+      id: "reviews|verify", flow: "reviewsCheck", rung: "verify", owner: "Gaby", severity: "due",
+      title: "Check Google reviews — " + rv.pending.length + " client" + (rv.pending.length === 1 ? "" : "s") +
+             " said yes and " + (rv.pending.length === 1 ? "is" : "are") + " still waiting.",
+      detail: "Best-effort weekly check (D-066). Last run " +
+              (rv.lastVerification ? Math.floor(rv.daysSinceVerification) + " days ago" : "never") + ".",
+      clientKey: "", clientName: "", email: "", cycle: 1, actions: []
+    }];
+  }
+
+  /**
    * @param {Object} state  StateBuilder.build() output
    * @returns {{tasks:Array, byOwner:Object, owners:Array, counts:Object, problems:Array}}
    */
@@ -149,6 +172,7 @@
 
     tasks = tasks.concat(reviewTasks(state));
     tasks = tasks.concat(raffleTasks(state));
+    tasks = tasks.concat(reviewsTasks(state));
 
     // Invariant: every owner is a real dashboard user. Coaches are never owners.
     tasks.forEach(function (t) {

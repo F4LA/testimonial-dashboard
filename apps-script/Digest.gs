@@ -215,6 +215,13 @@ var D_S = {
   RAFFLE_MONTH_ADDED:'Raffle — month added',
   RAFFLE_MONTH_MOVED:'Raffle — month moved',
 
+  /* --- reviews view (Phase 5, D-066). Confirmation is an AUDIT layer, never
+   * a raffle gate — the raffle reads PREFS_REVIEW above, never these. --- */
+  REVIEW_SELF_REPORTED: 'Review — self-reported',   // dashboard-writable; unused by this mirror on purpose
+  REVIEW_CONFIRMED:     'Review — confirmed',
+  REVIEW_UNMATCHED:     'Review — unmatched',
+  REVIEW_VERIFICATION:  'Review — verification done',
+
   /* --- postponement, "yes but next month" (D-120) --- */
   POSTPONED:           'Pipeline — postponed to month',
   POSTPONE_CANCELLED:  'Pipeline — postponement cancelled'
@@ -574,8 +581,10 @@ function dReadSettings_() {
     approvalEscalateHours:         48,
     bufferTargetWeeks:             4,
     scheduleOverdueDays:           3,
+    reviewVerificationDays:        7,
     activeMonth:                   '',
-    coachFormUrl:                  ''
+    coachFormUrl:                  '',
+    reviewAggregateCount:          ''
   };
   var sh = SpreadsheetApp.openById(DIGEST.SHEET_ID).getSheetByName(DIGEST.SETTINGS_TAB);
   if (!sh) return out;
@@ -1433,6 +1442,113 @@ function dRaffleTasks_(list, st) {
   return out;
 }
 
+/* ---------- Reviews view mirror (Phase 5, D-066) ---------- */
+
+/** Mirror of reviews.js `statusFor`. Confirmation is an AUDIT layer, never a
+ *  raffle gate — this reads D_S.PREFS_REVIEW, the SAME engine-owned event the
+ *  raffle mirror reads, never the dashboard-writable D_S.REVIEW_SELF_REPORTED. */
+function dReviewStatusFor_(t) {
+  var lbs = t.lastByStage || {};
+  function last(s) { return lbs[dNorm_(s)] || null; }
+
+  var selfEv = last(D_S.PREFS_REVIEW);
+  var self = selfEv ? dClassify_(selfEv.event) : null;
+  var selfState = !selfEv ? 'missing' : (self.met === true ? 'yes' : (self.met === false ? 'no' : 'unclear'));
+
+  var confirmedEv = last(D_S.REVIEW_CONFIRMED);
+  var unmatchedEv = last(D_S.REVIEW_UNMATCHED);
+  var auditState = 'none';
+  if (confirmedEv || unmatchedEv) {
+    var newer = (confirmedEv && (!unmatchedEv || confirmedEv.ts >= unmatchedEv.ts)) ? confirmedEv : unmatchedEv;
+    auditState = (newer === confirmedEv) ? 'confirmed' : 'unmatched';
+  }
+
+  return { key: t.key, selfState: selfState, auditState: auditState,
+           needsCheck: selfState === 'yes' && auditState === 'none' };
+}
+
+/**
+ * The weekly verification marker lives in the ONE category dFold_() throws
+ * away on purpose — email-less system rows (same bucket as the engine's own
+ * "Confirmation" rows). Re-reads the raw sheet rather than adding a second
+ * return value to dFold_ that every existing caller would have to learn to
+ * ignore; dReadSettings_ and dReadRoster_ already each do their own separate
+ * read, so one more read per run is the established pattern, not a new one.
+ */
+function dLastSystemEvent_(stageStr) {
+  var sh = SpreadsheetApp.openById(DIGEST.SHEET_ID).getSheetByName(DIGEST.EVENT_TAB);
+  var rows = sh.getDataRange().getValues();
+  var want = dNorm_(stageStr);
+  var best = null;
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    if (String(r[0] || '').trim()) continue;             // only email-less system rows
+    if (dNorm_(String(r[1] || '').trim()) !== want) continue;
+    var ts = dTs_(r[2]);
+    if (!best || (isFinite(ts) && (!isFinite(best.ts) || ts > best.ts))) best = { ts: ts, event: String(r[3] || '') };
+  }
+  return best;
+}
+
+/** Mirror of reviews.js `build`. */
+function dReviewsFold_(list, settings, now) {
+  var verifyDays = (settings && settings.reviewVerificationDays) || 7;
+  var entries = (list || []).filter(function (t) { return !t.terminal; }).map(dReviewStatusFor_);
+  var pending = entries.filter(function (e) { return e.needsCheck; });
+
+  var lastVerification = dLastSystemEvent_(D_S.REVIEW_VERIFICATION);
+  var daysSince = (lastVerification && isFinite(lastVerification.ts))
+    ? (now - lastVerification.ts) / 86400000 : Infinity;
+
+  return {
+    pending: pending, lastVerification: lastVerification,
+    daysSinceVerification: isFinite(daysSince) ? daysSince : null,
+    needsVerificationRun: pending.length > 0 && daysSince >= verifyDays
+  };
+}
+
+/**
+ * The weekly review check — a SYSTEM-level task, like the raffle draw:
+ * Gaby's own habit, not something any one client is waiting on more than
+ * another. Best-effort by design (D-066), one severity tier, no escalation.
+ *
+ * ⚠️ Mirror of alerts.js `reviewsTasks` (D-088).
+ */
+function dReviewsTasks_(list, st) {
+  var rv = dReviewsFold_(list, st, dNow_());
+  if (!rv.needsVerificationRun) return [];
+  return [{
+    flow: 'reviewsCheck', rung: 'verify', owner: 'Gaby', sev: 'due',
+    title: 'Check Google reviews — ' + rv.pending.length + ' client' + (rv.pending.length === 1 ? '' : 's') +
+           ' said yes and ' + (rv.pending.length === 1 ? 'is' : 'are') + ' still waiting.',
+    detail: 'Best-effort weekly check (D-066). Last run ' +
+            (rv.lastVerification ? Math.floor(rv.daysSinceVerification) + ' days ago' : 'never') + '.',
+    clientKey: '', clientName: '', waitedHours: NaN
+  }];
+}
+
+/** Structural assertions on the reviews mirror (mirror of reviews.js selfCheck). */
+function dSelfCheckReviews_() {
+  var problems = [];
+
+  var yes = dReviewStatusFor_({ key: 'x',
+    lastByStage: (function () { var m = {}; m[dNorm_(D_S.PREFS_REVIEW)] = { ts: 1, event: 'Yes ("sure")' }; return m; })()
+  });
+  if (!yes.needsCheck) problems.push('a yes self-report with no audit event must need a check');
+
+  var confirmed = dReviewStatusFor_({ key: 'x',
+    lastByStage: (function () {
+      var m = {};
+      m[dNorm_(D_S.PREFS_REVIEW)] = { ts: 1, event: 'Yes ("sure")' };
+      m[dNorm_(D_S.REVIEW_CONFIRMED)] = { ts: 2, event: '' };
+      return m;
+    })()
+  });
+  if (confirmed.needsCheck) problems.push('a confirmed review must not still need a check');
+
+  return problems;
+}
+
 /* ---------- The walker ---------- */
 
 var D_RANK = { overdue: 0, due: 1, reminder: 2, review: 3 };
@@ -1462,6 +1578,7 @@ function dTasks_(withProblems) {
 
   tasks = tasks.concat(dReviewTasks_(list, roster));
   tasks = tasks.concat(dRaffleTasks_(list, st));
+  tasks = tasks.concat(dReviewsTasks_(list, st));
 
   // THE GUARD. Coaches are never owners (D-094).
   tasks.forEach(function (t) {
@@ -2264,6 +2381,7 @@ function selfCheck() {
 
   var problems = dSelfCheckRaffle_().concat(dSelfCheckPostponement_())
                    .concat(dSelfCheckIdentity_()).concat(dSelfCheckSend_(addresses))
+                   .concat(dSelfCheckReviews_())
                    .concat(r.problems);
 
   // Every owner must be a dashboard user. After dTasks_ reroutes, this can only

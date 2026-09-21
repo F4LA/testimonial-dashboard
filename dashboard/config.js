@@ -174,7 +174,7 @@
      * every new action returns "Unknown action" — silently, because the
      * response used to be opaque. Bump this whenever Code.gs gains or changes
      * an action, and the dashboard warns instead of failing quietly. */
-    EXPECTED_PROXY_VERSION: 9,
+    EXPECTED_PROXY_VERSION: 10,
 
     /* ---------- Timezone ----------
      * The spreadsheet's timezone, and the one the engine stamps with.
@@ -304,6 +304,14 @@
       activeMonth:                   "",
       // Flow 10 · schedule + publish
       scheduleOverdueDays:           3,
+      // Reviews view (Phase 5, D-066) — how often Gaby's best-effort weekly
+      // Google review check is due. Set by hand in the Settings tab, same as
+      // every other threshold.
+      reviewVerificationDays:        7,
+      // Reviews view — the Google Business Profile's total review count,
+      // typed in by hand after checking. A reality check, not a gate; the
+      // dashboard only displays it, never computes it.
+      reviewAggregateCount:          "",
       // The coach form link used in the coach-form follow-up template.
       coachFormUrl:                  "https://docs.google.com/forms/d/e/1FAIpQLSdSrP7-crZYsQ8DjDBgJUc06ojFRzz1pipduj3MUJue5jinwQ/viewform"
     },
