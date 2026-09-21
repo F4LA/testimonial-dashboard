@@ -13,6 +13,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-20 — Reviews validado en vivo: huella tablero↔digest idéntica, incluida la tarea nueva
+
+Cierre de la entrada de abajo. Con `Code.gs` (v10, redesplegado como nueva versión) y `Digest.gs` pegados en el editor en vivo, `selfCheck()` y `Alerts.fingerprint(TDApp.state)` en la consola del navegador produjeron la MISMA cadena, carácter por carácter — 3 líneas, incluida `Gaby|reviewsCheck|verify|due|` (la tarea semanal de Reviews, con `clientKey` vacío porque es de sistema, no de un cliente). `invariants: ok`. La pestaña "Reviews" carga en el tablero real con la tarjeta del chequeo semanal. Reviews queda cerrado de punta a punta.
+
+---
+
 ## 2026-09-20 — Vista de Reviews construida (Fase 5, D-066): self-report vs. confirmación, nunca la misma cosa
 
 Nueva vista `#/reviews`. Dos señales, separadas a propósito: el auto-reporte del cliente (leído del evento del motor `Preferences — review self-reported` — el MISMO que ya lee el raffle, no una segunda fuente), vs. la confirmación humana de que Gaby encontró y emparejó una review real en Google por nombre (`Review — confirmed` / `Review — unmatched`, dashboard-owned, último-en-escribir-gana). La confirmación es una capa de auditoría, nunca una compuerta del raffle — `raffle.js` y `reviews.js` tienen cada uno su propio `selfCheck()` que revienta si algo intenta mezclarlas. Se agrega `Review — verification done` como marcador semanal, de sistema (sin email, mismo bucket que las filas `Confirmation` del motor) — best-effort, sin cadena de escalada, tarea a nivel-sistema igual que el sorteo del raffle (`alerts.js reviewsTasks`, espejo en `Digest.gs dReviewsTasks_`).
