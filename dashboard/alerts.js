@@ -143,6 +143,53 @@
   }
 
   /**
+   * Podcast + Client of the Month (Phase 5, D-068) — three SYSTEM-level
+   * tasks, none of them a ladder: the vote itself happens in Slack, so this
+   * only nudges the three follow-ups the dashboard can actually see.
+   *
+   * ⚠️ Mirrored in `apps-script/Digest.gs` (D-088).
+   */
+  function podcastTasks(state) {
+    if (!root.PodcastFold) return [];
+    var pc = root.PodcastFold.build(state);
+    var out = [];
+
+    pc.months.forEach(function (m) {
+      if (m.voteDue) {
+        out.push({
+          id: "podcast|vote|" + m.month, flow: "podcastVote", rung: "vote", owner: "Bernardo", severity: "due",
+          title: "Post the Client of the Month vote for " + m.label + " — " + m.candidates.length +
+                 (m.candidates.length === 1 ? " candidate" : " candidates") + ".",
+          detail: "Short candidate list in Slack, one pick per coach, most-voted wins.",
+          clientKey: "", clientName: "", email: "", cycle: 1, actions: []
+        });
+        return;
+      }
+      var w = m.winner;
+      if (!w) return;
+
+      if (w.consent.state === "yes" && !w.chain.PODCAST_INVITED) {
+        out.push({
+          id: "podcast|invite|" + w.key, flow: "podcastInvite", rung: "invite", owner: "Joey", severity: "due",
+          title: "Invite " + w.name + " (" + m.label + "'s Client of the Month) to the podcast.",
+          detail: "Podcast consent was captured at collection.",
+          clientKey: w.key, clientName: w.name, email: "", cycle: 1, actions: []
+        });
+      }
+      if (!w.shoutout) {
+        out.push({
+          id: "podcast|shoutout|" + w.key, flow: "podcastShoutout", rung: "shoutout", owner: "Bernardo", severity: "due",
+          title: "Send the shout-out for " + w.name + " (" + m.label + "'s Client of the Month).",
+          detail: "Happens regardless of the podcast — even if they can't or won't record.",
+          clientKey: w.key, clientName: w.name, email: "", cycle: 1, actions: []
+        });
+      }
+    });
+
+    return out;
+  }
+
+  /**
    * @param {Object} state  StateBuilder.build() output
    * @returns {{tasks:Array, byOwner:Object, owners:Array, counts:Object, problems:Array}}
    */
@@ -173,6 +220,7 @@
     tasks = tasks.concat(reviewTasks(state));
     tasks = tasks.concat(raffleTasks(state));
     tasks = tasks.concat(reviewsTasks(state));
+    tasks = tasks.concat(podcastTasks(state));
 
     // Invariant: every owner is a real dashboard user. Coaches are never owners.
     tasks.forEach(function (t) {

@@ -1,6 +1,6 @@
 # DASHBOARD-SYSTEM — Testimonial Dashboard (Strong Standard)
 
-**Last updated: 2026-09-20**
+**Last updated: 2026-09-20 (Podcast & Client of the Month, §10.9c)**
 **Phase: 1–4 complete and live (Foundation · Pipeline board + client card · Action queue + alerts · Calendar + buffer). The Slack digest is live on a daily trigger (D-104), and a daily drift check compares it against the real dashboard (§10.5b). Phase 5 in progress: the raffle (compliance + the draw) is built; reviews and podcast / client of the month are not.**
 
 **Living document · Permanent source of truth · Internal use**
@@ -848,6 +848,39 @@ Confirmation is an **audit layer, never a raffle gate** (D-066): a genuine revie
 | per-client status | `reviews.js statusFor` | `dReviewStatusFor_` |
 | the fold | `reviews.js build` | `dReviewsFold_` |
 | the weekly task | `alerts.js reviewsTasks` | `dReviewsTasks_` |
+
+---
+
+## 10.9c Podcast & Client of the Month (`#/podcast`) — D-068
+
+**The vote happens in Slack, by hand.** This view does not run a vote or count anything — it shows the candidate pool (all five pieces done, not terminal) grouped by cohort month, so whoever posts the Slack thread has the list ready, and it writes the RESULT once a human says who won.
+
+**The month is the raffle's month**, `RaffleFold.monthOf(t)` / `t.raffleMonth` (`dFold_()`'s own field on the `Digest.gs` side) — the same cohort-by-entry concept, not the calendar month production happens to finish in. D-068 is explicit that the vote lands at the end of the production cycle, which routinely spills past the nomination month.
+
+**Candidates = all five pieces done, not terminal.** Approval and scheduling are NOT required (D-068: "the vote is never blocked waiting on the landing page or on Joey's approval"). No repeat-win exclusion — unlike the raffle, D-068 never bars a past Client of the Month from winning again.
+
+**One write marks the winner** — `Client of the month — winner`, with a confirmation dialog (same category as the raffle's: it names a person a winner). Nothing stops marking a second winner for the same month; the dialog says to check the Slack thread first rather than the code enforcing it, because a human already decided this in Slack — the code's job is to record it, not to referee it.
+
+**The podcast chain is six independent markers** (invited / accepted / declined / scheduled / personal note sent / recorded / published), each its own write, no dialog, matching the calendar's "mark posted" pattern rather than a strict wizard. **The shout-out is separate and unconditional** — `Client of the month — shout-out` — a client who can't or won't do the podcast still gets the shout-out + case study (D-068).
+
+**Podcast consent** is read the same way Reviews reads the review self-report: the engine-owned `Preferences — podcast consent` (`RaffleFold.PREFS.PODCAST` on the frontend), never guessed.
+
+**Three system-level tasks** (mirror of `alerts.js podcastTasks` / `Digest.gs dPodcastTasks_`), none of them a ladder:
+
+| Task | Owner | Fires when |
+|---|---|---|
+| Post the vote | Bernardo | candidates exist for a month, no winner yet |
+| Invite to the podcast | Joey | winner exists, consent = yes, not yet invited |
+| Send the shout-out | Bernardo | winner exists, no shout-out event yet |
+
+**Not built here, and explicitly not blocking this view:** the actual GoHighLevel podcast booking calendar and the approved invitation copy (Bernardo + Joey's own operational pieces per the Master Plan). The "Invite to the podcast" task fires whether or not that calendar exists yet — it is a reminder to go do the real-world step, not a button that does it.
+
+| What | Frontend | `Digest.gs` |
+|---|---|---|
+| podcast consent | `podcast.js consentFor` | `dConsentFor_` |
+| the podcast chain | `podcast.js podcastChain` | `dPodcastChain_` |
+| the fold | `podcast.js build` | `dPodcastFold_` |
+| the three tasks | `alerts.js podcastTasks` | `dPodcastTasks_` |
 
 ---
 

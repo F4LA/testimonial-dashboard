@@ -13,6 +13,18 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-20 — Vista de Podcast / Cliente del mes construida (Fase 5, D-068): el voto vive en Slack, el tablero solo registra el resultado
+
+Nueva vista `#/podcast`. No corre ningún voto — agrupa candidatos (los cinco piezas listas, no terminales) por el mismo mes cohorte que ya usa el raffle (`RaffleFold.monthOf`/`t.raffleMonth`), no el mes calendario en que termina la producción, porque D-068 dice explícitamente que el voto cae al final del ciclo de producción, que se corre seguido al mes siguiente. Un solo write marca al ganador (`Client of the month — winner`, con diálogo de confirmación porque nombra a alguien ganador, igual que el raffle) — nada impide marcar un segundo ganador el mismo mes a propósito, porque la decisión ya se tomó en Slack; el código solo la registra. La cadena de podcast son seis marcadores independientes (invited/accepted/declined/scheduled/personal note sent/recorded/published), sin diálogo, igual que el patrón de "marcar publicado" del calendario. El shout-out es aparte e incondicional (`Client of the month — shout-out`) — pasa aunque el cliente no pueda o no quiera hacer el podcast.
+
+Tres tareas de sistema nuevas (`alerts.js podcastTasks`, mirror en `Digest.gs dPodcastTasks_`): publicar el voto (Bernardo), invitar al podcast (Joey, solo si el consentimiento ya dice sí), mandar el shout-out (Bernardo). Ninguna es una escalera — igual que el sorteo y el chequeo de reviews, son tareas a nivel-sistema, no por cliente.
+
+No construido acá, y a propósito no bloquea esta vista: el calendario real de podcast en GoHighLevel y el copy de invitación aprobado — eso sigue siendo trabajo operativo de Bernardo + Joey por fuera del código. La tarea de "invitar" avisa que hay que hacerlo, no lo hace por ellos.
+
+Archivos nuevos: `dashboard/podcast.js`, `dashboard/podcast-view.js`. Tocados: `renderer.js` (nav + ruta), `alerts.js` (`podcastTasks`), `index.html` (scripts), `apps-script/Digest.gs` (mirror completo). No hizo falta subir `PROXY_VERSION` — los nueve strings de podcast/COTM ya estaban en `ALLOWED_STAGES` desde antes, sin usar. Sintaxis validada con `node --check`. Pendiente: pegar `Digest.gs` en el editor en vivo y validar huella tablero↔digest.
+
+---
+
 ## 2026-09-20 — Texto corregido: el banner del sorteo decía "el último día del mes", el código abre el sorteo cuando el mes ya terminó (D-122)
 
 `raffle-view.js`: el banner de "esperando N personas antes de que el sorteo abra" decía "en cualquier caso el último día de [mes]" — pero `dMonthIsPast_`/`monthIsPast` solo se activa una vez que el mes ACTUAL ya es posterior a `r.month`, es decir, una vez que el mes terminó, no en su último día. Cambiado a "una vez que [mes] termine", que coincide con el comportamiento real. Solo texto — sin cambio de lógica ni mirror necesario en `Digest.gs` (esta línea no participa en la huella de tareas).

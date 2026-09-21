@@ -222,6 +222,17 @@ var D_S = {
   REVIEW_UNMATCHED:     'Review — unmatched',
   REVIEW_VERIFICATION:  'Review — verification done',
 
+  /* --- podcast + client of the month (Phase 5, D-068) --- */
+  PODCAST_INVITED:   'Podcast — invited',
+  PODCAST_ACCEPTED:  'Podcast — accepted',
+  PODCAST_DECLINED:  'Podcast — declined',
+  PODCAST_SCHEDULED: 'Podcast — scheduled',
+  PODCAST_NOTE_SENT: 'Podcast — personal note sent',
+  PODCAST_RECORDED:  'Podcast — recorded',
+  PODCAST_PUBLISHED: 'Podcast — published',
+  COTM_WINNER:       'Client of the month — winner',
+  COTM_SHOUTOUT:     'Client of the month — shout-out',
+
   /* --- postponement, "yes but next month" (D-120) --- */
   POSTPONED:           'Pipeline — postponed to month',
   POSTPONE_CANCELLED:  'Pipeline — postponement cancelled'
@@ -1549,6 +1560,115 @@ function dSelfCheckReviews_() {
   return problems;
 }
 
+/* ---------- Podcast + Client of the Month mirror (Phase 5, D-068) ---------- */
+
+/** Mirror of raffle.js monthLabel. */
+function dMonthLabel_(key) {
+  var m = /^(\d{4})-(\d{2})$/.exec(String(key || ''));
+  if (!m) return key || '—';
+  return D_MON[+m[2] - 1] + ' ' + m[1];
+}
+
+/** Mirror of podcast.js consentFor. */
+function dConsentFor_(t) {
+  var ev = (t.lastByStage || {})[dNorm_(D_S.PREFS_PODCAST)] || null;
+  if (!ev) return { state: 'missing' };
+  var c = dClassify_(ev.event);
+  return { state: c.met === true ? 'yes' : (c.met === false ? 'no' : 'unclear') };
+}
+
+var D_PODCAST_KEYS = ['PODCAST_INVITED', 'PODCAST_ACCEPTED', 'PODCAST_DECLINED',
+                       'PODCAST_SCHEDULED', 'PODCAST_NOTE_SENT', 'PODCAST_RECORDED', 'PODCAST_PUBLISHED'];
+
+/** Mirror of podcast.js podcastChain. */
+function dPodcastChain_(t) {
+  var lbs = t.lastByStage || {};
+  var out = {};
+  D_PODCAST_KEYS.forEach(function (k) {
+    var ev = lbs[dNorm_(D_S[k])];
+    if (ev) out[k] = ev;
+  });
+  return out;
+}
+
+/**
+ * Mirror of podcast.js build. `t.raffleMonth` is read straight off dFold_()'s
+ * own output rather than recomputed — dFold_ already resolves the cohort
+ * month for the raffle mirror, and D-068 explicitly reuses that same month
+ * concept rather than inventing a second one.
+ */
+function dPodcastFold_(list) {
+  var candidates = (list || []).filter(function (t) { return t.allPiecesDone && !t.terminal; });
+
+  var byMonth = {};
+  candidates.forEach(function (t) {
+    (byMonth[t.raffleMonth] || (byMonth[t.raffleMonth] = [])).push(t);
+  });
+
+  var months = Object.keys(byMonth).sort().map(function (mo) {
+    var group = byMonth[mo];
+    var winner = group.filter(function (t) { return t.lastByStage[dNorm_(D_S.COTM_WINNER)]; })[0] || null;
+
+    return {
+      month: mo, label: dMonthLabel_(mo), candidateCount: group.length,
+      winner: winner ? {
+        key: winner.key, email: winner.email, consent: dConsentFor_(winner), chain: dPodcastChain_(winner),
+        shoutout: winner.lastByStage[dNorm_(D_S.COTM_SHOUTOUT)] || null
+      } : null,
+      voteDue: !winner && group.length > 0
+    };
+  });
+
+  return { months: months };
+}
+
+/**
+ * Three SYSTEM-level tasks, mirror of alerts.js `podcastTasks`. The vote
+ * itself happens in Slack — this only nudges the follow-ups the dashboard
+ * can see: posting the candidate list, inviting the winner, and the
+ * shout-out (unconditional, even if the winner skips the podcast).
+ */
+function dPodcastTasks_(list, roster) {
+  var pc = dPodcastFold_(list);
+  var out = [];
+
+  pc.months.forEach(function (m) {
+    if (m.voteDue) {
+      out.push({
+        flow: 'podcastVote', rung: 'vote', owner: 'Bernardo', sev: 'due',
+        title: 'Post the Client of the Month vote for ' + m.label + ' — ' + m.candidateCount +
+               (m.candidateCount === 1 ? ' candidate' : ' candidates') + '.',
+        detail: 'Short candidate list in Slack, one pick per coach, most-voted wins.',
+        clientKey: '', clientName: '', waitedHours: NaN
+      });
+      return;
+    }
+    var w = m.winner;
+    if (!w) return;
+    var id = roster.resolve(w.email);
+    var name = id.name || w.email;
+
+    if (w.consent.state === 'yes' && !w.chain.PODCAST_INVITED) {
+      out.push({
+        flow: 'podcastInvite', rung: 'invite', owner: 'Joey', sev: 'due',
+        title: 'Invite ' + name + ' (' + m.label + "'s Client of the Month) to the podcast.",
+        detail: 'Podcast consent was captured at collection.',
+        clientKey: w.key, clientName: name, waitedHours: NaN
+      });
+    }
+    if (!w.shoutout) {
+      out.push({
+        flow: 'podcastShoutout', rung: 'shoutout', owner: 'Bernardo', sev: 'due',
+        title: 'Send the shout-out for ' + name + ' (' + m.label + "'s Client of the Month).",
+        detail: "Happens regardless of the podcast — even if they can't or won't record.",
+        clientKey: w.key, clientName: name, waitedHours: NaN
+      });
+    }
+  });
+
+  return out;
+}
+
 /* ---------- The walker ---------- */
 
 var D_RANK = { overdue: 0, due: 1, reminder: 2, review: 3 };
@@ -1579,6 +1699,7 @@ function dTasks_(withProblems) {
   tasks = tasks.concat(dReviewTasks_(list, roster));
   tasks = tasks.concat(dRaffleTasks_(list, st));
   tasks = tasks.concat(dReviewsTasks_(list, st));
+  tasks = tasks.concat(dPodcastTasks_(list, roster));
 
   // THE GUARD. Coaches are never owners (D-094).
   tasks.forEach(function (t) {
