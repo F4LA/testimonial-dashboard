@@ -259,8 +259,8 @@
           r.eligible.length + (r.eligible.length === 1 ? " entry already qualifies" : " entries already qualify") +
           ", but confirming a winner freezes a permanent snapshot of who was eligible — " +
           "drawing now would write these people out of a month they are still working on. " +
-          "The draw opens on its own once everyone is resolved, and in any case on " +
-          esc(r.monthLabel) + "'s last day.</div>" +
+          "The draw opens on its own once everyone is resolved, and in any case once " +
+          esc(r.monthLabel) + " is over.</div>" +
           '<ul class="holds">' + rows + "</ul>" +
           '<p class="sub">Each of these resolves by qualifying, by being declined or dropped, ' +
           "or by being moved to another month.</p>" +

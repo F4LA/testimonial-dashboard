@@ -13,6 +13,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-20 — Texto corregido: el banner del sorteo decía "el último día del mes", el código abre el sorteo cuando el mes ya terminó (D-122)
+
+`raffle-view.js`: el banner de "esperando N personas antes de que el sorteo abra" decía "en cualquier caso el último día de [mes]" — pero `dMonthIsPast_`/`monthIsPast` solo se activa una vez que el mes ACTUAL ya es posterior a `r.month`, es decir, una vez que el mes terminó, no en su último día. Cambiado a "una vez que [mes] termine", que coincide con el comportamiento real. Solo texto — sin cambio de lógica ni mirror necesario en `Digest.gs` (esta línea no participa en la huella de tareas).
+
+---
+
 ## 2026-09-20 — Reviews validado en vivo: huella tablero↔digest idéntica, incluida la tarea nueva
 
 Cierre de la entrada de abajo. Con `Code.gs` (v10, redesplegado como nueva versión) y `Digest.gs` pegados en el editor en vivo, `selfCheck()` y `Alerts.fingerprint(TDApp.state)` en la consola del navegador produjeron la MISMA cadena, carácter por carácter — 3 líneas, incluida `Gaby|reviewsCheck|verify|due|` (la tarea semanal de Reviews, con `clientKey` vacío porque es de sistema, no de un cliente). `invariants: ok`. La pestaña "Reviews" carga en el tablero real con la tarjeta del chequeo semanal. Reviews queda cerrado de punta a punta.
