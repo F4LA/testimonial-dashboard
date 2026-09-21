@@ -1635,7 +1635,10 @@ function dPodcastTasks_(list, roster) {
   pc.months.forEach(function (m) {
     if (m.voteDue) {
       out.push({
-        flow: 'podcastVote', rung: 'vote', owner: 'Bernardo', sev: 'due',
+        // rung carries the MONTH — mirror of alerts.js, so two pending months
+        // don't collapse into identical fingerprint lines. clientKey stays
+        // empty on purpose (see alerts.js's comment on the same task).
+        flow: 'podcastVote', rung: 'vote-' + m.month, owner: 'Bernardo', sev: 'due',
         title: 'Post the Client of the Month vote for ' + m.label + ' — ' + m.candidateCount +
                (m.candidateCount === 1 ? ' candidate' : ' candidates') + '.',
         detail: 'Short candidate list in Slack, one pick per coach, most-voted wins.',

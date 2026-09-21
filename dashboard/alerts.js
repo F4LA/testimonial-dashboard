@@ -157,7 +157,14 @@
     pc.months.forEach(function (m) {
       if (m.voteDue) {
         out.push({
-          id: "podcast|vote|" + m.month, flow: "podcastVote", rung: "vote", owner: "Bernardo", severity: "due",
+          // `rung` carries the MONTH, not just "vote" — this is a system-level
+          // task like the raffle draw's, so clientKey stays empty (a non-empty
+          // clientKey renders a client-card link in queue-view.js, which a
+          // month is not). Without the month somewhere in the tuple, two
+          // pending months produce identical fingerprint lines (D-088's
+          // comparison hashes [owner, flow, rung, sev, clientKey]), so a real
+          // drift between the two sides could hide behind a false match.
+          id: "podcast|vote|" + m.month, flow: "podcastVote", rung: "vote-" + m.month, owner: "Bernardo", severity: "due",
           title: "Post the Client of the Month vote for " + m.label + " — " + m.candidates.length +
                  (m.candidates.length === 1 ? " candidate" : " candidates") + ".",
           detail: "Short candidate list in Slack, one pick per coach, most-voted wins.",
