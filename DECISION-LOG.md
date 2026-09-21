@@ -13,6 +13,12 @@ Chronological record of decisions and changes to the dashboard (frontend and `ap
 
 ---
 
+## 2026-09-20 — Podcast/COTM validado en vivo: huella idéntica, dos meses distinguidos correctamente (2026-08 y 2026-09)
+
+Con el fix del `rung` pegado en vivo y el tablero recargado a la fuerza (el primer intento seguía cacheado), `selfCheck()` y `Alerts.fingerprint(TDApp.state)` produjeron la MISMA cadena — 5 líneas, incluidas `Bernardo|podcastVote|vote-2026-08|due|` y `Bernardo|podcastVote|vote-2026-09|due|`, cada mes con su propia línea, ya no colapsadas. `invariants: ok`. Podcast/Cliente del mes queda cerrado de punta a punta.
+
+---
+
 ## 2026-09-20 — Bug real encontrado validando huellas: dos meses pendientes de voto colapsaban en la misma línea de huella
 
 Al comparar `selfCheck()` contra `Alerts.fingerprint(TDApp.state)` en vivo (con dos meses cohorte esperando el voto de cliente del mes a la vez), salieron dos líneas idénticas `Bernardo|podcastVote|vote|due|` — coincidían entre los dos lados hoy, pero la huella no puede distinguir "estos dos meses" de "otros dos meses distintos", porque la tarea de voto usaba `clientKey` vacío (es una tarea de sistema, no de un cliente). Intenté el arreglo obvio (meter el mes en `clientKey`) y encontré un segundo problema al revisar `queue-view.js`: un `clientKey` no vacío genera un link a la tarjeta del cliente, así que esa tarea habría mostrado un link roto con texto vacío en la cola. Arreglo real: el mes va en `rung` (`'vote-' + month`), que sí participa en la huella pero no se usa para nada de UI. Mismo fix en `alerts.js` y `Digest.gs`.
